@@ -41,7 +41,7 @@ const eraseDbContent = (db) => {
 module.exports = (factory, factoryOptions) => {
     const {
         Constants, Block, BlockInfo, UTXO, ArrayOfHashes, ArrayOfAddresses, Contract,
-        TxReceipt, WitnessGroupDefinition, Peer, PatchDB
+        TxReceipt, WitnessGroupDefinition, Peer, PatchDB, SqlStorage
     } = factory;
 
     return class Storage {
@@ -86,6 +86,8 @@ module.exports = (factory, factoryOptions) => {
             }
 
             this._mutex = mutex;
+
+            this._sqlStorage = new SqlStorage({...options});
         }
 
         /**
@@ -165,11 +167,11 @@ module.exports = (factory, factoryOptions) => {
                 throw new Error(`Storage: Block ${buffHash.toString('hex')} already saved!`);
             }
             await this._blockStorage.put(key, block.encode());
+            await this._sqlStorage.saveBlock(block);
 
             // save blockInfo
             if (!blockInfo) blockInfo = new BlockInfo(block.header);
             await this.saveBlockInfo(blockInfo);
-
             if (this._buildTxIndex) {
                 debug(`Storing TX index for ${block.getHash()}`);
 
@@ -215,6 +217,7 @@ module.exports = (factory, factoryOptions) => {
             const bufHash = Buffer.isBuffer(blockHash) ? blockHash : Buffer.from(blockHash, 'hex');
             const key = this.constructor.createKey('', bufHash);
             await this._blockStorage.del(key);
+            await this._sqlStorage.removeBlock(blockHash);
         }
 
         /**
@@ -348,7 +351,8 @@ module.exports = (factory, factoryOptions) => {
          * @returns {Promise<void>}
          */
         async applyPatch(statePatch) {
-
+            const arrUtxos = [];
+            const arrDelUtxo = [];
             const arrOps = [];
             const lock = await this._mutex.acquire(['utxo', 'contract', 'receipt']);
             try {
@@ -356,13 +360,18 @@ module.exports = (factory, factoryOptions) => {
                     const key = this.constructor.createUtxoKey(strTxHash);
                     if (utxo.isEmpty()) {
                         arrOps.push({type: 'del', key});
+                        arrDelUtxo.push(strTxHash);
                     } else {
                         arrOps.push({type: 'put', key, value: utxo.encode()});
+                        arrUtxos.push(utxo)
                     }
 
                     if (this._walletSupport) await this._walletUtxoCheck(utxo);
                 }
-
+                if(arrUtxos.length)
+                    await this._sqlStorage.saveUtxos(arrUtxos);
+                if(arrDelUtxo.length)
+                    await this._sqlStorage.deleteUtxos(arrDelUtxo);
                 // save contracts
                 for (let [strContractAddr, contract] of statePatch.getContracts()) {
 

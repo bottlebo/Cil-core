@@ -44,6 +44,7 @@ const MempoolWrapper = require('../node/mempool');
 const WitnessWrapper = require('../node/witness');
 const RpcWrapper = require('../node/rpc');
 const AppWrapper = require('../node/app');
+const SqlStorageWrapper = require('../storage/sqlStorage');
 
 const StorageWrapper = require('../storage/persistentStorage');
 const PatchWrapper = require('../storage/patch');
@@ -71,51 +72,54 @@ class Factory {
         this._donePromise = this._asyncLoader();
         this._donePromise.then((prototypes) => {
 
-                // Order is mandatory!
-                // For example if Utxo depends on Coins implementation, you should implement Coins first
-                this._constants = {
-                    ...this._constants,
-                    ...prototypes.enumServices.values,
-                    ...prototypes.enumRejectCodes.values,
-                    ...prototypes.enumInventory.values,
-                    ...prototypes.enumTxStatus.values
-                };
+            // Order is mandatory!
+            // For example if Utxo depends on Coins implementation, you should implement Coins first
+            this._constants = {
+                ...this._constants,
+                ...prototypes.enumServices.values,
+                ...prototypes.enumRejectCodes.values,
+                ...prototypes.enumInventory.values,
+                ...prototypes.enumTxStatus.values
+            };
 
-                // prototypes
-                this._coinsImplementation = CoinsWrapper(this);
-                this._transactionImplementation = TransactionWrapper(this, prototypes);
-                this._blockImplementation = BlockWrapper(this, prototypes);
-                this._inventoryImplementation = InventoryWrapper(this, prototypes);
-                this._utxoImplementation = UtxoWrapper(this, prototypes);
-                this._witnessGroupDefinition = WitnessGroupDefinition(this, prototypes);
-                this._blockInfo = BlockInfoWrapper(this, prototypes);
-                this._arrayOfHashes = ArrayOfWrapper(32);
-                this._arrayOfAddresses = ArrayOfWrapper(20);
-                this._contract = ContractWrapper(this, prototypes);
-                this._txReceipt = TxReceiptWrapper(this, prototypes);
+            // prototypes
+            this._coinsImplementation = CoinsWrapper(this);
+            this._transactionImplementation = TransactionWrapper(this, prototypes);
+            this._blockImplementation = BlockWrapper(this, prototypes);
+            this._inventoryImplementation = InventoryWrapper(this, prototypes);
+            this._utxoImplementation = UtxoWrapper(this, prototypes);
+            this._witnessGroupDefinition = WitnessGroupDefinition(this, prototypes);
+            this._blockInfo = BlockInfoWrapper(this, prototypes);
+            this._arrayOfHashes = ArrayOfWrapper(32);
+            this._arrayOfAddresses = ArrayOfWrapper(20);
+            this._contract = ContractWrapper(this, prototypes);
+            this._txReceipt = TxReceiptWrapper(this, prototypes);
 
-                this._messagesImplementation = MessagesWrapper(this, prototypes);
+            this._messagesImplementation = MessagesWrapper(this, prototypes);
 
-                //
-                this._serializerImplementation = SerializerWrapper(this.Messages);
-                this._messageAssemblerImplementation = MessageAssemblerWrapper(this.Serializer);
-                this._transportImplemetation = TransportWrapper(this);
-                this._peerImplementation = PeerWrapper(this);
-                this._peerManagerImplemetation = PeerManagerWrapper(this);
-                this._patchImplementation = PatchWrapper(this);
-                this._storageImplementation = StorageWrapper(this, options);
-                this._bftImplementation = BftWrapper(this);
-                this._mempoolImplementation = MempoolWrapper(this);
-                this._rpcImplementation = RpcWrapper(this);
-                this._appImplementation = AppWrapper(this);
-                this._pendingBlocksManagerImplementation = PendingBlocksManagerWrapper(this);
-                this._mainDagImplementation = MainDagWrapper(this);
-                this._requestCacheImplementation = RequestCacheWrapper(this);
+            //
+            this._serializerImplementation = SerializerWrapper(this.Messages);
+            this._messageAssemblerImplementation = MessageAssemblerWrapper(this.Serializer);
+            this._transportImplemetation = TransportWrapper(this);
+            this._peerImplementation = PeerWrapper(this);
+            this._peerManagerImplemetation = PeerManagerWrapper(this);
+            this._patchImplementation = PatchWrapper(this);
 
-                // all componenst should be declared above
-                this._nodeImplementation = NodeWrapper(this, {...options, workerSuspended: true});
-                this._witnessImplementation = WitnessWrapper(this, options);
-            })
+            this._sqlStorageImplementation = SqlStorageWrapper(this);
+
+            this._storageImplementation = StorageWrapper(this, options);
+            this._bftImplementation = BftWrapper(this);
+            this._mempoolImplementation = MempoolWrapper(this);
+            this._rpcImplementation = RpcWrapper(this);
+            this._appImplementation = AppWrapper(this);
+            this._pendingBlocksManagerImplementation = PendingBlocksManagerWrapper(this);
+            this._mainDagImplementation = MainDagWrapper(this);
+            this._requestCacheImplementation = RequestCacheWrapper(this);
+
+            // all componenst should be declared above
+            this._nodeImplementation = NodeWrapper(this, {...options, workerSuspended: true});
+            this._witnessImplementation = WitnessWrapper(this, options);
+        })
             .catch(err => {
                 logger.error(err);
                 process.exit(10);
@@ -134,8 +138,8 @@ class Factory {
     get version() {
         const arrSubversions = pack.version.split('.');
         return parseInt(arrSubversions[0]) * Math.pow(2, 16) +
-               parseInt(arrSubversions[1]) * Math.pow(2, 10) +
-               parseInt(arrSubversions[2]);
+            parseInt(arrSubversions[1]) * Math.pow(2, 10) +
+            parseInt(arrSubversions[2]);
     }
 
     get WitnessGroupDefinition() {
@@ -237,7 +241,9 @@ class Factory {
     get Peer() {
         return this._peerImplementation;
     }
-
+    get SqlStorage() {
+        return this._sqlStorageImplementation;
+    }
     get Storage() {
         return this._storageImplementation;
     }
