@@ -41,8 +41,8 @@ const eraseDbContent = (db) => {
 module.exports = (factory, factoryOptions) => {
     const {
         Constants, Block, BlockInfo, UTXO, ArrayOfHashes, ArrayOfAddresses, Contract,
-        TxReceipt, WitnessGroupDefinition, Peer, PatchDB, SqlStorage,
-        ConciliumDefinition, Peer, PatchDB
+        TxReceipt,  Peer, PatchDB, SqlStorage,
+        ConciliumDefinition
     } = factory;
 
     return class Storage {

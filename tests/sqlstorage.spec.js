@@ -14,11 +14,11 @@ describe('Storage tests', () => {
     assert.doesNotThrow(wrapper);
   });
 
-  // it('should save block.', async () => {
-  //   const block = createDummyBlock(factory);
-  //   const storage = new factory.SqlStorage();
-  //   await storage.saveBlock(block);
-  // });
+  it('should save block.', async () => {
+    const block = createDummyBlock(factory);
+    const storage = new factory.SqlStorage();
+    await storage.saveBlock(block);
+  });
 
   // it('should save/delete block.', async () => {
   //   const block = createDummyBlock(factory);
