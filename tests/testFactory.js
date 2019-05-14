@@ -57,7 +57,7 @@ const BlockWrapper = require('../structures/block');
 const InventoryWrapper = require('../structures/inventory');
 const UtxoWrapper = require('../structures/utxo');
 const CoinsWrapper = require('../structures/coins');
-const ConciliumDefinition = require('../structures/conciliumDefinition');
+const WitnessGroupDefinition = require('../structures/witnessGroupDefinition');
 const BlockInfoWrapper = require('../structures/blockInfo');
 const ArrayOfWrapper = require('../structures/arrayOf');
 const ContractWrapper = require('../structures/contract');
@@ -72,52 +72,54 @@ class Factory {
         this._donePromise = this._asyncLoader();
         this._donePromise.then((prototypes) => {
 
-                // Order is mandatory!
-                // For example if Utxo depends on Coins implementation, you should implement Coins first
-                this._constants = {
-                    ...this._constants,
-                    ...prototypes.enumServices.values,
-                    ...prototypes.enumRejectCodes.values,
-                    ...prototypes.enumInventory.values,
-                    ...prototypes.enumTxStatus.values
-                };
+            // Order is mandatory!
+            // For example if Utxo depends on Coins implementation, you should implement Coins first
+            this._constants = {
+                ...this._constants,
+                ...prototypes.enumServices.values,
+                ...prototypes.enumRejectCodes.values,
+                ...prototypes.enumInventory.values,
+                ...prototypes.enumTxStatus.values
+            };
 
-                // prototypes
-                this._coinsImplementation = CoinsWrapper(this);
-                this._transactionImplementation = TransactionWrapper(this, prototypes);
-                this._blockImplementation = BlockWrapper(this, prototypes);
-                this._inventoryImplementation = InventoryWrapper(this, prototypes);
-                this._utxoImplementation = UtxoWrapper(this, prototypes);
-                this._conciliumDefinition = ConciliumDefinition(this, prototypes);
-                this._blockInfo = BlockInfoWrapper(this, prototypes);
-                this._arrayOfHashes = ArrayOfWrapper(32);
-                this._arrayOfAddresses = ArrayOfWrapper(20);
-                this._contract = ContractWrapper(this, prototypes);
-                this._txReceipt = TxReceiptWrapper(this, prototypes);
+            // prototypes
+            this._coinsImplementation = CoinsWrapper(this);
+            this._transactionImplementation = TransactionWrapper(this, prototypes);
+            this._blockImplementation = BlockWrapper(this, prototypes);
+            this._inventoryImplementation = InventoryWrapper(this, prototypes);
+            this._utxoImplementation = UtxoWrapper(this, prototypes);
+            this._witnessGroupDefinition = WitnessGroupDefinition(this, prototypes);
+            this._blockInfo = BlockInfoWrapper(this, prototypes);
+            this._arrayOfHashes = ArrayOfWrapper(32);
+            this._arrayOfAddresses = ArrayOfWrapper(20);
+            this._contract = ContractWrapper(this, prototypes);
+            this._txReceipt = TxReceiptWrapper(this, prototypes);
 
-                this._messagesImplementation = MessagesWrapper(this, prototypes);
+            this._messagesImplementation = MessagesWrapper(this, prototypes);
 
-                //
-                this._serializerImplementation = SerializerWrapper(this.Messages);
-                this._messageAssemblerImplementation = MessageAssemblerWrapper(this.Serializer);
-                this._transportImplemetation = TransportWrapper(this);
-                this._peerImplementation = PeerWrapper(this);
-                this._peerManagerImplemetation = PeerManagerWrapper(this);
-                this._patchImplementation = PatchWrapper(this);
-                this._sqlStorageImplementation = SqlStorageWrapper(this);
-                this._storageImplementation = StorageWrapper(this, options);
-                this._bftImplementation = BftWrapper(this);
-                this._mempoolImplementation = MempoolWrapper(this);
-                this._rpcImplementation = RpcWrapper(this);
-                this._appImplementation = AppWrapper(this);
-                this._pendingBlocksManagerImplementation = PendingBlocksManagerWrapper(this);
-                this._mainDagImplementation = MainDagWrapper(this);
-                this._requestCacheImplementation = RequestCacheWrapper(this);
+            //
+            this._serializerImplementation = SerializerWrapper(this.Messages);
+            this._messageAssemblerImplementation = MessageAssemblerWrapper(this.Serializer);
+            this._transportImplemetation = TransportWrapper(this);
+            this._peerImplementation = PeerWrapper(this);
+            this._peerManagerImplemetation = PeerManagerWrapper(this);
+            this._patchImplementation = PatchWrapper(this);
 
-                // all componenst should be declared above
-                this._nodeImplementation = NodeWrapper(this, {...options, workerSuspended: true});
-                this._witnessImplementation = WitnessWrapper(this, options);
-            })
+            this._sqlStorageImplementation = SqlStorageWrapper(this);
+
+            this._storageImplementation = StorageWrapper(this, options);
+            this._bftImplementation = BftWrapper(this);
+            this._mempoolImplementation = MempoolWrapper(this);
+            this._rpcImplementation = RpcWrapper(this);
+            this._appImplementation = AppWrapper(this);
+            this._pendingBlocksManagerImplementation = PendingBlocksManagerWrapper(this);
+            this._mainDagImplementation = MainDagWrapper(this);
+            this._requestCacheImplementation = RequestCacheWrapper(this);
+
+            // all componenst should be declared above
+            this._nodeImplementation = NodeWrapper(this, {...options, workerSuspended: true});
+            this._witnessImplementation = WitnessWrapper(this, options);
+        })
             .catch(err => {
                 logger.error(err);
                 process.exit(10);
@@ -140,8 +142,8 @@ class Factory {
             parseInt(arrSubversions[2]);
     }
 
-    get ConciliumDefinition() {
-        return this._conciliumDefinition;
+    get WitnessGroupDefinition() {
+        return this._witnessGroupDefinition;
     }
 
     get ArrayOfHashes() {
@@ -322,8 +324,7 @@ class Factory {
 
             utxoProto: protoStructures.lookupType("structures.UTXO"),
 
-            conciliumDefinitionProto: protoStructures.lookupType("structures.ConciliumDefinition"),
-            conciliumParametersProto: protoStructures.lookupType("structures.ConciliumParameters"),
+            witnessGroupDefinitionProto: protoStructures.lookupType("structures.WitnessGroupDefinition"),
 
             contractProto: protoStructures.lookupType("structures.Contract"),
             txReceiptProto: protoStructures.lookupType("structures.TxReceipt")

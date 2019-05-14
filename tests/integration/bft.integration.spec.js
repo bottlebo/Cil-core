@@ -16,15 +16,15 @@ const createDummyBFT = (groupId = 0, numOfKeys = 2) => {
     }
     const newWallet = new factory.Wallet(arrKeyPairs[0].privateKey);
 
-    const concilium = factory.ConciliumDefinition.create(groupId, arrPublicKeys);
+    const groupDefinition = factory.WitnessGroupDefinition.create(groupId, arrPublicKeys);
 
     const newBft = new factory.BFT({
-        concilium,
+        groupDefinition,
         wallet: newWallet
     });
     newBft._stopTimer();
 
-    return {arrKeyPairs, newWallet, concilium, newBft};
+    return {arrKeyPairs, newWallet, groupDefinition, newBft};
 };
 
 const createBlockAckMessage = (groupId, privateKey, blockHash) => {

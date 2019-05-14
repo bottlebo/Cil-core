@@ -4,7 +4,7 @@ const debugLib = require('debug');
 
 const rpc = require('json-rpc2');
 
-const {asyncRPC, prepareForStringifyObject, stripAddressPrefix} = require('../utils');
+const {asyncRPC, prepareForStringifyObject} = require('../utils');
 const types = require('../types');
 
 const debug = debugLib('RPC:');
@@ -27,13 +27,7 @@ module.exports = ({Constants, Transaction}) =>
                 websocket: true,
                 headers: {
                     'Access-Control-Allow-Origin': '*'
-                },
-
-                // default rate limit: 20 requests/second
-                ratelimit: {maxPerInterval: 20, msInterval: 1000},
-
-                // this allow override defaults above
-                ...options
+                }
             });
             if (rpcUser && rpcPass) this._server.enableAuth(rpcUser, rpcPass);
 
@@ -42,12 +36,11 @@ module.exports = ({Constants, Transaction}) =>
             this._server.expose('getBlock', asyncRPC(this.getBlock.bind(this)));
             this._server.expose('getTips', asyncRPC(this.getTips.bind(this)));
             this._server.expose('getNext', asyncRPC(this.getNext.bind(this)));
-            this._server.expose('getPrev', asyncRPC(this.getPrev.bind(this)));
+            this._server.expose('getPrev', asyncRPC(this.getPrev.bind(this)))
             this._server.expose('getTx', asyncRPC(this.getTx.bind(this)));
             this._server.expose('constantMethodCall', asyncRPC(this.constantMethodCall.bind(this)));
             this._server.expose('getUnspent', asyncRPC(this.getUnspent.bind(this)));
             this._server.expose('walletListUnspent', asyncRPC(this.walletListUnspent.bind(this)));
-            this._server.expose('getBalance', asyncRPC(this.getBalance.bind(this)));
             this._server.listen(rpcPort, rpcAddress);
         }
 
@@ -102,7 +95,6 @@ module.exports = ({Constants, Transaction}) =>
                 }
             );
         }
-
         /**
          *
          * @param {Object} args
@@ -124,11 +116,11 @@ module.exports = ({Constants, Transaction}) =>
                     block: prepareForStringifyObject(result.block.toObject()),
                     state: result.state
                 } : undefined;
-            } catch (err) {
+            }
+            catch (err) {
                 return undefined;
             }
         }
-
         /**
          *
          * @returns {Promise<Array>} of blockInfos (headers)
@@ -145,11 +137,11 @@ module.exports = ({Constants, Transaction}) =>
                     block: prepareForStringifyObject(objBlockState.block.toObject()),
                     state: objBlockState.state
                 }));
-            } catch (err) {
+            }
+            catch (err) {
                 return [];
             }
         }
-
         /**
          *
          * @returns {Promise<Array>} of blockInfos (headers)
@@ -169,11 +161,11 @@ module.exports = ({Constants, Transaction}) =>
                     block: prepareForStringifyObject(objBlockState.block.toObject()),
                     state: objBlockState.state
                 }));
-            } catch (err) {
+            }
+            catch (err) {
                 return [];
             }
         }
-
         /**
          *
          * @returns {Promise<Array>} of blockInfos (headers)
@@ -193,11 +185,11 @@ module.exports = ({Constants, Transaction}) =>
                     block: prepareForStringifyObject(objBlockState.block.toObject()),
                     state: objBlockState.state
                 }));
-            } catch (err) {
+            }
+            catch (err) {
                 return [];
             }
         }
-
         async getTx(args) {
             const {strTxHash} = args;
 
@@ -236,13 +228,11 @@ module.exports = ({Constants, Transaction}) =>
         }
 
         async walletListUnspent(args) {
-            let {strAddress} = args;
-            strAddress = stripAddressPrefix(Constants, strAddress);
-
+            const {strAddress} = args;
 
             const {arrStableUtxos, arrPendingUtxos} = await this._nodeInstance.rpcHandler({
                 event: 'walletListUnspent',
-                content: {strAddress}
+                content: args
             });
 
             const representResults = (arrUtxos, isStable) => {
@@ -262,38 +252,5 @@ module.exports = ({Constants, Transaction}) =>
                 representResults(arrStableUtxos, true),
                 representResults(arrPendingUtxos, false)
             ));
-        }
-
-        async getBalance(args) {
-            let {strAddress} = args;
-            strAddress = stripAddressPrefix(Constants, strAddress);
-
-            const {arrStableUtxos, arrPendingUtxos} = await this._nodeInstance.rpcHandler({
-                event: 'walletListUnspent',
-                content: {strAddress}
-            });
-
-            const getUtxoBalance = (utxo) => {
-                let balance = 0;
-                utxo
-                    .getOutputsForAddress(strAddress)
-                    .forEach(([idx, coins]) => {
-                        balance += coins.getAmount();
-                    });
-                return balance;
-            };
-
-            const confirmedBalance = arrStableUtxos.reduce((balance, utxo) => {
-                return balance + getUtxoBalance(utxo);
-            }, 0);
-
-            const unconfirmedBalance = arrPendingUtxos.reduce((balance, utxo) => {
-                return balance + getUtxoBalance(utxo);
-            }, 0);
-
-            return prepareForStringifyObject({
-                confirmedBalance,
-                unconfirmedBalance
-            });
         }
     };

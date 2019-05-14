@@ -3,8 +3,6 @@
 const {describe, it} = require('mocha');
 const {assert} = require('chai');
 const {sleep, createDummyTx} = require('./testUtil');
-const {arrayEquals} = require('../utils');
-const sinon = require('sinon').createSandbox();
 
 const factory = require('./testFactory');
 
@@ -19,10 +17,6 @@ describe('Mempool tests', () => {
 
     after(async function() {
         this.timeout(15000);
-    });
-
-    afterEach(async () => {
-        sinon.restore();
     });
 
     it('should create mempool', async () => {
@@ -119,14 +113,14 @@ describe('Mempool tests', () => {
     });
 
     it('should remove oldest txns with age > TX_LIFETIME(5s.)', async function() {
+        this.timeout(10000);
         const mempool = new factory.Mempool();
         const tx1 = new factory.Transaction(createDummyTx());
         const tx2 = new factory.Transaction(createDummyTx());
         const tx3 = new factory.Transaction(createDummyTx());
         mempool.addTx(tx1);
         mempool.addTx(tx2);
-        const future = Date.now() + factory.Constants.MEMPOOL_TX_LIFETIME + 1;
-        sinon.stub(Date, 'now').callsFake(_ => future);
+        await sleep(6000);
         mempool.addTx(tx3);
 
         mempool.purgeOutdated();
@@ -172,17 +166,6 @@ describe('Mempool tests', () => {
         assert.isOk(mempool.hasTx(tx5.hash()));
         assert.isOk(mempool.hasTx(tx6.hash()));
 
-    });
-
-    it('should getAllTxnHashes', async () => {
-        const mempool = new factory.Mempool();
-        const tx1 = new factory.Transaction(createDummyTx());
-        const tx2 = new factory.Transaction(createDummyTx());
-
-        mempool.addTx(tx1);
-        mempool.addTx(tx2);
-
-        assert.isOk(arrayEquals(mempool.getAllTxnHashes(), [tx1.getHash(), tx2.getHash()]));
     });
 
 });

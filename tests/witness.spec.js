@@ -30,18 +30,18 @@ const createDummyDefinitionWallet = (groupId = 0) => {
     const keyPair2 = factory.Crypto.createKeyPair();
     const newWallet = new factory.Wallet(keyPair1.privateKey);
 
-    const concilium = factory.ConciliumDefinition.create(groupId,
+    const groupDefinition = factory.WitnessGroupDefinition.create(groupId,
         [keyPair1.publicKey, keyPair2.publicKey]
     );
 
-    return {keyPair1, keyPair2, concilium, newWallet};
+    return {keyPair1, keyPair2, groupDefinition, newWallet};
 };
 
 const createDummyWitness = () => {
-    const {concilium, newWallet} = createDummyDefinitionWallet();
-    const witness = new factory.Witness({wallet: newWallet, arrTestDefinition: [concilium]});
+    const {groupDefinition, newWallet} = createDummyDefinitionWallet();
+    const witness = new factory.Witness({wallet: newWallet, arrTestDefinition: [groupDefinition]});
 
-    return {witness, concilium};
+    return {witness, groupDefinition};
 };
 
 describe('Witness tests', () => {
@@ -67,8 +67,8 @@ describe('Witness tests', () => {
 
     it('should get peers for my group', async () => {
         const groupId = 0;
-        const {keyPair1, keyPair2, concilium} = createDummyDefinitionWallet(groupId);
-        const witness = new factory.Witness({wallet, arrTestDefinition: [concilium], isSeed: true});
+        const {keyPair1, keyPair2, groupDefinition} = createDummyDefinitionWallet(groupId);
+        const witness = new factory.Witness({wallet, arrTestDefinition: [groupDefinition], isSeed: true});
         await witness.ensureLoaded();
 
         const peer1 = createDummyPeer(keyPair1.publicKey);
@@ -79,7 +79,7 @@ describe('Witness tests', () => {
             await witness._peerManager.addPeer(peer);
         }
 
-        const result = await witness._getGroupPeers(concilium);
+        const result = await witness._getGroupPeers(groupDefinition);
         assert.isOk(Array.isArray(result));
         assert.equal(result.length, 2);
     });
@@ -90,7 +90,7 @@ describe('Witness tests', () => {
         // mock peer with public key from group
         const peer = createDummyPeer();
 
-        const def = factory.ConciliumDefinition.create(
+        const def = factory.WitnessGroupDefinition.create(
             groupId,
             [wallet.publicKey, Buffer.from('pubkey1'), Buffer.from('pubkey2')]
         );
@@ -114,7 +114,7 @@ describe('Witness tests', () => {
     it('should create block', async () => {
         factory.Constants.GENESIS_BLOCK = pseudoRandomBuffer().toString('hex');
 
-        const {witness, concilium} = createDummyWitness();
+        const {witness, groupDefinition} = createDummyWitness();
         await witness.ensureLoaded();
 
         const patchSource = new factory.PatchDB(0);
@@ -137,7 +137,7 @@ describe('Witness tests', () => {
         witness._mempool.addTx(tx1);
         witness._mempool.addTx(tx2);
 
-        const {block, patch} = await witness._createBlock(concilium.getGroupId());
+        const {block, patch} = await witness._createBlock(groupDefinition.getGroupId());
         assert.equal(block.txns.length, 3);
 
         assert.isOk(patch.getUtxo(new factory.Transaction(block.txns[0]).hash()));

@@ -41,8 +41,7 @@ const eraseDbContent = (db) => {
 module.exports = (factory, factoryOptions) => {
     const {
         Constants, Block, BlockInfo, UTXO, ArrayOfHashes, ArrayOfAddresses, Contract,
-        TxReceipt, WitnessGroupDefinition, Peer, PatchDB, SqlStorage,
-        ConciliumDefinition, Peer, PatchDB
+        TxReceipt, WitnessGroupDefinition, Peer, PatchDB, SqlStorage
     } = factory;
 
     return class Storage {
@@ -109,24 +108,24 @@ module.exports = (factory, factoryOptions) => {
             return this.createKey(UTXO_PREFIX, Buffer.from(hash, 'hex'));
         }
 
-        async _ensureArrConciliumDefinition() {
+        async _ensureArrGroupDefinition() {
             const cont = await this.getContract(Buffer.from(Constants.GROUP_DEFINITION_CONTRACT_ADDRESS, 'hex'));
-            this._arrConciliumDefinition = cont ? ConciliumDefinition.getFromContractData(cont.getData()) : [];
+            this._arrGroupDefinition = cont ? WitnessGroupDefinition.getFromContractData(cont.getData()) : [];
         }
 
         /**
          *
          * @param {Buffer | String} publicKey
-         * @returns {Promise<Array>} of ConciliumDefinition this publicKey belongs to
+         * @returns {Promise<Array>} of WitnessGroupDefinition this publicKey belongs to
          */
-        async getConciliumsByKey(publicKey) {
+        async getWitnessGroupsByKey(publicKey) {
             const buffPubKey = Buffer.isBuffer(publicKey) ? publicKey : Buffer.from(publicKey, 'hex');
 
             if (!Constants.GROUP_DEFINITION_CONTRACT_ADDRESS) return [];
-            await this._ensureArrConciliumDefinition();
+            await this._ensureArrGroupDefinition();
 
             const arrResult = [];
-            for (let def of this._arrConciliumDefinition) {
+            for (let def of this._arrGroupDefinition) {
                 if (~def.getPublicKeys().findIndex(key => key.equals(buffPubKey))) {
                     arrResult.push(def);
                 }
@@ -137,23 +136,23 @@ module.exports = (factory, factoryOptions) => {
         /**
          *
          * @param {Number} id
-         * @returns {Promise<ConciliumDefinition>} publicKey belongs to
+         * @returns {Promise<WitnessGroupDefinition>} of groupDefinition publicKey belongs to
          */
-        async getConciliumById(id) {
+        async getWitnessGroupById(id) {
 
             if (!Constants.GROUP_DEFINITION_CONTRACT_ADDRESS) return undefined;
-            await this._ensureArrConciliumDefinition();
+            await this._ensureArrGroupDefinition();
 
-            return id > this._arrConciliumDefinition.length ?
-                undefined : this._arrConciliumDefinition[id];
+            return id > this._arrGroupDefinition.length ?
+                undefined : this._arrGroupDefinition[id];
         }
 
-        async getConciliumsCount() {
+        async getWitnessGroupsCount() {
 
             if (!Constants.GROUP_DEFINITION_CONTRACT_ADDRESS) return 0;
-            await this._ensureArrConciliumDefinition();
+            await this._ensureArrGroupDefinition();
 
-            return this._arrConciliumDefinition.length;
+            return this._arrGroupDefinition.length;
         }
 
         async saveBlock(block, blockInfo) {
@@ -376,9 +375,9 @@ module.exports = (factory, factoryOptions) => {
                 // save contracts
                 for (let [strContractAddr, contract] of statePatch.getContracts()) {
 
-                    // if we change concilium contract - update cache
+                    // if we change groupDefinition contract - update cache
                     if (Constants.GROUP_DEFINITION_CONTRACT_ADDRESS === strContractAddr) {
-                        this._arrConciliumDefinition = contract.getData();
+                        this._arrGroupDefinition = contract.getData();
                     }
                     const key = this.constructor.createKey(CONTRACT_PREFIX, Buffer.from(strContractAddr, 'hex'));
                     arrOps.push({type: 'put', key, value: contract.encode()});

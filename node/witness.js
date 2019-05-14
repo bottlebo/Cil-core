@@ -5,12 +5,12 @@ const debugLib = require('debug');
 const debugWitness = debugLib('witness:app');
 const debugWitnessMsg = debugLib('witness:messages');
 
-const createPeerTag = (nConciliumId) => {
-    return `wg${nConciliumId}`;
+const createPeerTag = (nWitnessGroupId) => {
+    return `wg${nWitnessGroupId}`;
 };
 
 module.exports = (factory, factoryOptions) => {
-    const {Node, Messages, Constants, BFT, Block, Transaction, ConciliumDefinition, PatchDB, BlockInfo} = factory;
+    const {Node, Messages, Constants, BFT, Block, Transaction, WitnessGroupDefinition, PatchDB, BlockInfo} = factory;
     const {MsgWitnessCommon, MsgWitnessBlock, MsgWitnessWitnessExpose} = Messages;
 
     return class Witness extends Node {
@@ -41,9 +41,9 @@ module.exports = (factory, factoryOptions) => {
         async bootstrap() {
 
             // try early initialization of consensus engines
-            const arrConciliums = await this._storage.getConciliumsByKey(this._wallet.publicKey);
+            const arrGroupDefinitions = await this._storage.getWitnessGroupsByKey(this._wallet.publicKey);
 
-            for (let def of arrConciliums) {
+            for (let def of arrGroupDefinitions) {
                 await this._createConsensusForGroup(def);
             }
             await super.bootstrap();
@@ -55,30 +55,30 @@ module.exports = (factory, factoryOptions) => {
          * @return {Promise<void>}
          */
         async start() {
-            const arrConciliums = await this._storage.getConciliumsByKey(this._wallet.publicKey);
+            const arrGroupDefinitions = await this._storage.getWitnessGroupsByKey(this._wallet.publicKey);
 
             // this need only at very beginning when witness start without genesis. In this case
             const wasInitialized = this._consensuses.size;
 
-            for (let def of arrConciliums) {
+            for (let def of arrGroupDefinitions) {
                 if (!wasInitialized) await this._createConsensusForGroup(def);
-                await this.startConcilium(def);
+                await this.startWitnessGroup(def);
             }
 
-            return arrConciliums.length;
+            return arrGroupDefinitions.length;
             // TODO: add watchdog to maintain connections to as much as possible witnesses
         }
 
         /**
          * Establish connection with other witnesses in specified group
          *
-         * @param {ConciliumDefinition} concilium
+         * @param {WitnessGroupDefinition} groupDefinition
          * @return {Promise<void>}
          */
-        async startConcilium(concilium) {
-            const peers = await this._getGroupPeers(concilium);
+        async startWitnessGroup(groupDefinition) {
+            const peers = await this._getGroupPeers(groupDefinition);
             debugWitness(
-                `******* "${this._debugAddress}" started WITNESS for group: "${concilium.getGroupId()}" ${peers.length} peers *******`);
+                `******* "${this._debugAddress}" started WITNESS for group: "${groupDefinition.getGroupId()}" ${peers.length} peers *******`);
 
             for (let peer of peers) {
                 debugWitness(`--------- "${this._debugAddress}" started WITNESS handshake with "${peer.address}" ----`);
@@ -92,7 +92,7 @@ module.exports = (factory, factoryOptions) => {
                 if (!peer.disconnected) {
 
                     // to prove that it's real witness it should perform signed handshake
-                    const handshakeMsg = this._createHandshakeMessage(concilium.getGroupId());
+                    const handshakeMsg = this._createHandshakeMessage(groupDefinition.getGroupId());
                     debugWitnessMsg(
                         `(address: "${this._debugAddress}") sending SIGNED message "${handshakeMsg.message}" to "${peer.address}"`);
                     await peer.pushMessage(handshakeMsg);
@@ -101,7 +101,7 @@ module.exports = (factory, factoryOptions) => {
                     if (peer.witnessLoadDone) {
 
                         // mark it for broadcast
-                        peer.addTag(createPeerTag(concilium.getGroupId()));
+                        peer.addTag(createPeerTag(groupDefinition.getGroupId()));
 
                         // prevent witness disconnect by timer or bytes threshold
                         peer.markAsPersistent();
@@ -123,27 +123,27 @@ module.exports = (factory, factoryOptions) => {
 
         /**
          *
-         * @param {ConciliumDefinition} concilium
+         * @param {WitnessGroupDefinition} groupDefinition
          * @returns {Promise<void>}
          * @private
          */
-        async _createConsensusForGroup(concilium) {
+        async _createConsensusForGroup(groupDefinition) {
             const consensus = new BFT({
-                concilium,
+                groupDefinition,
                 wallet: this._wallet
             });
             this._setConsensusHandlers(consensus);
-            this._consensuses.set(concilium.getGroupId(), consensus);
+            this._consensuses.set(groupDefinition.getGroupId(), consensus);
         }
 
         /**
          *
-         * @param {ConciliumDefinition} concilium
+         * @param {WitnessGroupDefinition} groupDefinition
          * @return {Array} of Peers with capability WITNESS which belongs to group
          * @private
          */
-        async _getGroupPeers(concilium) {
-            const arrGroupKeys = concilium.getPublicKeys();
+        async _getGroupPeers(groupDefinition) {
+            const arrGroupKeys = groupDefinition.getPublicKeys();
             const arrAllWitnessesPeers = this._peerManager.filterPeers({service: Constants.WITNESS}, true);
             const arrPeers = [];
             for (let peer of arrAllWitnessesPeers) {

@@ -100,11 +100,5 @@ module.exports = {
         return commandLineArgs(optionDefinitions, {camelCase: true});
     },
 
-    prepareForStringifyObject,
-
-    stripAddressPrefix(Constants, strAddr) {
-        return strAddr.substring(0, 2) === Constants.ADDRESS_PREFIX ?
-            strAddr.substring(Constants.ADDRESS_PREFIX.length)
-            : strAddr;
-    }
+    prepareForStringifyObject
 };

@@ -245,16 +245,16 @@ describe('Application layer', () => {
                 }
             
                 addDefinition
-                (objConcilium)
+                (objGroupDefinition)
                 {
             
                     // check fee!
-                    console.log(objConcilium)
+                    console.log(objGroupDefinition)
                 }
             
                 noArguments(){}
             
-                _validateDefinition(objConcilium) {
+                _validateDefinition(objGroupDefinition) {
                 }
                 
                 // getters/setters ignored
