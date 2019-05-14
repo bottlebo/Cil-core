@@ -26,7 +26,7 @@ module.exports = (factory, factoryOptions) => {
       );
       //
       await Promise.all(
-        block.signatures.map(async signature => await sql.query(`INSERT INTO Signatures (BlockHash, Signature) VALUES ('${hash}', '${signature}')`))
+        block.signatures.map(async signature => await sql.query(`INSERT INTO ParentHashes (BlockHash, Signature) VALUES ('${hash}', '${signature}')`))
       );
       await Promise.all(
         block.txns.map(async objTx => {
