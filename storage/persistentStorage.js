@@ -167,8 +167,8 @@ module.exports = (factory, factoryOptions) => {
                 throw new Error(`Storage: Block ${buffHash.toString('hex')} already saved!`);
             }
             await this._blockStorage.put(key, block.encode());
-            await this._sqlStorage.saveBlock(block);
 
+            await this._sqlStorage.saveBlock(block);
             // save blockInfo
             if (!blockInfo) blockInfo = new BlockInfo(block.header);
             await this.saveBlockInfo(blockInfo);

@@ -12,22 +12,34 @@ module.exports = (factory, factoryOptions) => {
         ...factoryOptions,
         ...options
       };
+      this.connect()
     }
     //
+    async connect() {
+      await sql.connect(connectionString)
+
+    }
     async saveBlock(block) {
       const hash = block.getHash();
+
       const merkleRoot = block.merkleRoot.toString('hex');
       const command = `INSERT INTO Blocks (Hash, MerkleRoot, WitnessGroupId, Timestamp, Version, State)` +
         ` VALUES('${hash}', '${merkleRoot}', ${block.witnessGroupId}, ${block.timestamp}, 1, 0)`;
-      await sql.connect(connectionString)
+      //await sql.connect(connectionString)
+
       await sql.query(command)
       await Promise.all(
         block.parentHashes.map(async parent => await sql.query(`INSERT INTO ParentHashes (BlockHash, ParentHash) VALUES ('${hash}', '${parent}')`))
       );
       //
+
       await Promise.all(
-        block.signatures.map(async signature => await sql.query(`INSERT INTO Signatures (BlockHash, Signature) VALUES ('${hash}', '${signature}')`))
+        block.signatures.map(async sig => { 
+          const signature = sig ? sig.toString('hex') : '';
+          await sql.query(`INSERT INTO Signatures (BlockHash, Signature) VALUES ('${hash}', '${signature}')`)
+        })
       );
+
       await Promise.all(
         block.txns.map(async objTx => {
           const tx = new Transaction(objTx);
@@ -35,7 +47,8 @@ module.exports = (factory, factoryOptions) => {
           
           await Promise.all(
             tx.claimProofs.map(async proof => {
-              await sql.query(`INSERT INTO ClaimProofs (TransactionHash, Proof) VALUES ('${tx.getHash()}', '${proof}')`)
+              const claimProof = proof ? proof.toString('hex') : '';
+              await sql.query(`INSERT INTO ClaimProofs (TransactionHash, Proof) VALUES ('${tx.getHash()}', '${claimProof}')`)
             })
           );
 
@@ -45,6 +58,7 @@ module.exports = (factory, factoryOptions) => {
               await sql.query(`INSERT INTO Inputs (TransactionHash, TxHash, nTxOutput) VALUES ('${tx.getHash()}', '${txHash}', ${input.nTxOutput})`)
             })
           );
+
           await Promise.all(
             tx.outputs.map(async out => {
               const receiverAddr = out.receiverAddr ? out.receiverAddr.toString('hex') : '';
@@ -58,17 +72,14 @@ module.exports = (factory, factoryOptions) => {
         })
       );
 
-      sql.close();
+     // sql.close();
     }
     async removeBlock(blockHash) {
       const command = `DELETE FROM Blocks WHERE Hash='${blockHash}'`;
-      await sql.connect(connectionString)
       await sql.query(command)
-      sql.close();
     }
     async saveUtxos(arrUtxos) {
       let utxoId;
-      await sql.connect(connectionString);
       await Promise.all(
         arrUtxos.map(async utxo => {
           const txHash = utxo._txHash.toString('hex');
@@ -99,13 +110,11 @@ module.exports = (factory, factoryOptions) => {
       sql.close();
     }
     async deleteUtxos(arrHash) {
-      await sql.connect(connectionString);
       await Promise.all(
         arrHash.map(async hash => {
           await sql.query(`DELETE FROM Utxo WHERE TransactionHash=${hash}`);
         })
       )
-      sql.close();
     }
   }
 }
