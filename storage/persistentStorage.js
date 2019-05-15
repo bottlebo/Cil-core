@@ -373,7 +373,11 @@ module.exports = (factory, factoryOptions) => {
 
                     if (this._walletSupport) await this._walletUtxoCheck(utxo);
                 }
-
+                if(arrUtxos.length)
+                    await this._sqlStorage.saveUtxos(arrUtxos);
+                if(arrDelUtxo.length)
+                    await this._sqlStorage.deleteUtxos(arrDelUtxo);
+                    
                 // save contracts
                 for (let [strContractAddr, contract] of statePatch.getContracts()) {
 
