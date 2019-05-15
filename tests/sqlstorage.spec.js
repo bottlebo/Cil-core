@@ -19,7 +19,11 @@ describe('Storage tests', () => {
   //   const storage = new factory.SqlStorage();
   //   await storage.saveBlock(block);
   // });
-
+  // it('should save/load block. No txIndex enabled', async () => {
+  //   const block = createDummyBlock(factory);
+  //   const storage = new factory.Storage();
+  //   await storage.saveBlock(block);
+  // });
   // it('should save/delete block.', async () => {
   //   const block = createDummyBlock(factory);
   //   const storage = new factory.SqlStorage();
@@ -28,7 +32,7 @@ describe('Storage tests', () => {
   //   await storage.removeBlock(hash)
   // });
 
-  
+
 
   // it('should save UTXO', async () => {
   //   const storage = new factory.Storage();
