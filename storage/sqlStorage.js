@@ -71,8 +71,6 @@ module.exports = (factory, factoryOptions) => {
           );
         })
       );
-
-     // sql.close();
     }
     async removeBlock(blockHash) {
       const command = `DELETE FROM Blocks WHERE Hash='${blockHash}'`;
@@ -107,7 +105,6 @@ module.exports = (factory, factoryOptions) => {
             )
         })
       );
-      sql.close();
     }
     async deleteUtxos(arrHash) {
       await Promise.all(
