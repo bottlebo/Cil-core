@@ -19,8 +19,9 @@ module.exports = (factory, factoryOptions) => {
         ...options
       };
       this.pool = new sql.ConnectionPool(config);
+      this.pool.on('error', err => { console.log(err)});
       this.pool.close();
-      this.connPromise = this.pool.connect(err => { console.log(err)});
+      this.connPromise = this.pool.connect();
     }
     //
     async saveBlock(block) {
@@ -50,15 +51,13 @@ module.exports = (factory, factoryOptions) => {
       await Promise.all(
         block.txns.map(async objTx => {
           const tx = new Transaction(objTx);
-          await request.query(`INSERT INTO Transactions (Hash, BlockHash, Version, WitnessGroupId, Status)
-                               VALUES ('${tx.getHash()}','${hash}', 1, ${tx.witnessGroupId},'')`)
+          await request.query(`INSERT INTO Transactions (Hash, BlockHash, Version, WitnessGroupId, Status) VALUES ('${tx.getHash()}','${hash}', 1, ${tx.witnessGroupId},'')`)
             .catch(err => console.log(err.originalError.info));
 
           await Promise.all(
             tx.claimProofs.map(async proof => {
               const claimProof = proof ? proof.toString('hex') : '';
-              await request.query(`INSERT INTO ClaimProofs (TransactionHash, Proof)
-                                   VALUES ('${tx.getHash()}', '${claimProof}')`)
+              await request.query(`INSERT INTO ClaimProofs (TransactionHash, Proof) VALUES ('${tx.getHash()}', '${claimProof}')`)
                 .catch(err => console.log(err.originalError.info));
             })
           );
@@ -66,8 +65,7 @@ module.exports = (factory, factoryOptions) => {
           await Promise.all(
             tx.inputs.map(async input => {
               const txHash = input.txHash.toString('hex');
-              await request.query(`INSERT INTO Inputs (TransactionHash, TxHash, nTxOutput)
-                                   VALUES ('${tx.getHash()}', '${txHash}', ${input.nTxOutput})`)
+              await request.query(`INSERT INTO Inputs (TransactionHash, TxHash, nTxOutput) VALUES ('${tx.getHash()}', '${txHash}', ${input.nTxOutput})`)
                 .catch(err => console.log(err.originalError.info));
             })
           );
@@ -77,8 +75,7 @@ module.exports = (factory, factoryOptions) => {
               const receiverAddr = out.receiverAddr ? out.receiverAddr.toString('hex') : '';
               const addrChangeReceiver = out.addrChangeReceiver ? out.addrChangeReceiver.toString('hex') : null;
               const contractCode = out.contractCode ? out.contractCode : null;
-              await request.query(`INSERT INTO Outputs (TransactionHash, ReceiverAddr, AddrChangeReceiver, Amount, ContractCode )
-                                   VALUES ('${tx.getHash()}', '${receiverAddr}', '${addrChangeReceiver}', ${out.amount}, ${contractCode})`)
+              await request.query(`INSERT INTO Outputs (TransactionHash, ReceiverAddr, AddrChangeReceiver, Amount, ContractCode ) VALUES ('${tx.getHash()}', '${receiverAddr}', '${addrChangeReceiver}', ${out.amount}, ${contractCode})`)
                 .catch(err => console.log(err.originalError.info));
 
             })
