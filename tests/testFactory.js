@@ -44,6 +44,7 @@ const MempoolWrapper = require('../node/mempool');
 const WitnessWrapper = require('../node/witness');
 const RpcWrapper = require('../node/rpc');
 const AppWrapper = require('../node/app');
+const SqlStorageWrapper = require('../storage/sqlStorage');
 
 const StorageWrapper = require('../storage/persistentStorage');
 const PatchWrapper = require('../storage/patch');
@@ -103,6 +104,8 @@ class Factory {
                 this._peerImplementation = PeerWrapper(this);
                 this._peerManagerImplemetation = PeerManagerWrapper(this);
                 this._patchImplementation = PatchWrapper(this);
+                this._sqlStorageImplementation = SqlStorageWrapper(this);
+
                 this._storageImplementation = StorageWrapper(this, options);
                 this._bftImplementation = BftWrapper(this);
                 this._mempoolImplementation = MempoolWrapper(this);
@@ -240,6 +243,10 @@ class Factory {
 
     get Storage() {
         return this._storageImplementation;
+    }
+    
+    get SqlStorage() {
+        return this._sqlStorageImplementation;
     }
 
     get PendingBlocksManager() {

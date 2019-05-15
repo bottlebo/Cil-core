@@ -12,6 +12,7 @@
     "leveldown": "^4.0.2",
     "levelup": "^4.0.0",
     "merkletreejs": "0.0.11",
+    "mssql": "^5.1.0",
     "mutex": "git+https://github.com/trueshura/MUTEX.git",
     "nat-upnp": "^1.1.1",
     "protobufjs": "^6.8.8",
@@ -29,7 +30,7 @@
     "sinon": "^6.3.5"
   },
   "scripts": {
-    "test": "mocha --exit ./tests/*.spec.js ./tests/**/*.spec.js",
+    "test": "mocha --exit ./tests/sqlstorage.spec.js ./tests/**/*.spec1.js",
     "testDebugWin": "set DEBUG=*,-mocha:* && mocha --exit ./tests/*.spec.js ./tests/**/*.spec.js",
     "testDebugNix": "DEBUG=*,-mocha:* mocha --exit ./tests/*.spec.js ./tests/**/*.spec.js"
   }
