@@ -130,10 +130,8 @@ module.exports = (factory, factoryOptions) => {
                                     .catch(err => console.log(err));
           if (result.recordset.length) {
             utxoId = result.recordset[0].Id;
-            await request.query(`DELETE FROM UtxoIndices WHERE UtxoId = ${utxoId}`)
+            await request.query(`DELETE FROM UtxoIndexOutputs WHERE UtxoId = ${utxoId}`)
                          .catch(err => console.log(err.originalError.info));
-            await request.query(`DELETE FROM UtxoOutputs WHERE UtxoId = ${utxoId}`)
-                         .catch(err => console.log(err));
 
           }
           else {
@@ -142,17 +140,11 @@ module.exports = (factory, factoryOptions) => {
           }
           utxoId = result.recordset[0].Id;
           await Promise.all(
-            utxo.getIndexes().map(async index => {
+            utxo.getIndexes().map(async (index, i) => {
               const request = new sql.Request(this.pool);
-              await request.query(`INSERT INTO UtxoIndices (UtxoId, [Index]) VALUES (${utxoId}, ${index})`)
-                           .catch(err => console.log(err));
-            })
-          )
-          await Promise.all(
-            utxo._data.arrOutputs.map(async out => {
-              const request = new sql.Request(this.pool);
-              const receiverAddr = out.receiverAddr.toString('hex');
-              await request.query(`INSERT INTO UtxoOutputs (UtxoId, Amount, ReceiverAddr) VALUES (${utxoId}, ${out.amount}, '${receiverAddr}')`)
+              const amount = utxo._data.arrOutputs[i].amount;
+              const receiverAddr = utxo._data.arrOutputs[i].receiverAddr.toString('hex');
+              await request.query(`INSERT INTO UtxoIndexOutputs (UtxoId, [Index], Amount, ReceiverAddr) VALUES (${utxoId}, ${index}, ${amount}, '${receiverAddr}')`)
                            .catch(err => console.log(err));
             })
           )
