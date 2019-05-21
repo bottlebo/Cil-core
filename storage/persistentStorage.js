@@ -86,8 +86,9 @@ module.exports = (factory, factoryOptions) => {
             }
 
             this._mutex = mutex;
-            this._sqlStorage = new SqlStorage({...options});
-
+            if (options.sqlConfig) {
+                this._sqlStorage = new SqlStorage({...options});
+            }
         }
 
         /**
@@ -167,8 +168,9 @@ module.exports = (factory, factoryOptions) => {
                 throw new Error(`Storage: Block ${buffHash.toString('hex')} already saved!`);
             }
             await this._blockStorage.put(key, block.encode());
-
-            await this._sqlStorage.saveBlock(block);
+            if (this._sqlStorage) {
+                await this._sqlStorage.saveBlock(block);
+            }
             // save blockInfo
             if (!blockInfo) blockInfo = new BlockInfo(block.header);
             await this.saveBlockInfo(blockInfo);
@@ -218,7 +220,9 @@ module.exports = (factory, factoryOptions) => {
             const bufHash = Buffer.isBuffer(blockHash) ? blockHash : Buffer.from(blockHash, 'hex');
             const key = this.constructor.createKey('', bufHash);
             await this._blockStorage.del(key);
-            await this._sqlStorage.removeBlock(blockHash);
+            if (this._sqlStorage) {
+                await this._sqlStorage.removeBlock(blockHash);
+            }
 
         }
 
@@ -373,11 +377,12 @@ module.exports = (factory, factoryOptions) => {
 
                     if (this._walletSupport) await this._walletUtxoCheck(utxo);
                 }
-                if(arrUtxos.length)
-                    await this._sqlStorage.saveUtxos(arrUtxos);
-                if(arrDelUtxo.length)
-                    await this._sqlStorage.deleteUtxos(arrDelUtxo);
-                    
+                if (this._sqlStorage) {
+                    if (arrUtxos.length)
+                        await this._sqlStorage.saveUtxos(arrUtxos);
+                    if (arrDelUtxo.length)
+                        await this._sqlStorage.deleteUtxos(arrDelUtxo);
+                }
                 // save contracts
                 for (let [strContractAddr, contract] of statePatch.getContracts()) {
 
@@ -583,12 +588,12 @@ module.exports = (factory, factoryOptions) => {
             const keyEnd = this.constructor.createKey(WALLET_PREFIX, buffAddress, strLastIndex);
 
             return new Promise(resolve => {
-                    const arrRecords = [];
-                    this._walletStorage
-                        .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
-                        .on('data', (data) => arrRecords.push(data))
-                        .on('close', () => resolve(arrRecords));
-                }
+                const arrRecords = [];
+                this._walletStorage
+                    .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
+                    .on('data', (data) => arrRecords.push(data))
+                    .on('close', () => resolve(arrRecords));
+            }
             );
         }
 
@@ -699,20 +704,20 @@ module.exports = (factory, factoryOptions) => {
             const keyEnd = this.constructor.createUtxoKey(Buffer.from('FF', 'hex'));
 
             await new Promise(resolve => {
-                    this._db
-                        .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
-                        .on('data', async data => {
+                this._db
+                    .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
+                    .on('data', async data => {
 
-                            // get hash from key (slice PREFIX)
-                            const hash = data.key.slice(1);
-                            const utxo = new UTXO({txHash: hash, data: data.value});
-                            for (let strAddr of this._arrStrWalletAddresses) {
-                                const arrIndexes = utxo.getOutputsForAddress(strAddr);
-                                if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
-                            }
-                        })
-                        .on('close', () => resolve());
-                }
+                        // get hash from key (slice PREFIX)
+                        const hash = data.key.slice(1);
+                        const utxo = new UTXO({txHash: hash, data: data.value});
+                        for (let strAddr of this._arrStrWalletAddresses) {
+                            const arrIndexes = utxo.getOutputsForAddress(strAddr);
+                            if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
+                        }
+                    })
+                    .on('close', () => resolve());
+            }
             );
         }
     };

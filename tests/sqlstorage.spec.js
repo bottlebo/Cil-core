@@ -21,7 +21,7 @@ describe('Storage tests', () => {
   // });
   // it('should save/load block. No txIndex enabled', async () => {
   //   const block = createDummyBlock(factory);
-  //   const storage = new factory.Storage();
+  //   const storage = new factory.Storage({sqlConfig:'default'});
   //   await storage.saveBlock(block);
   // });
   // it('should save/delete block.', async () => {

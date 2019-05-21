@@ -1,20 +1,21 @@
 const sql = require('mssql/tedious');
+const configs = require('../config/sqlserver.config.json')
 const connectionString = 'mssql://cil:1234567890@localhost/cilstorage?driver=tedious';
-const config = {
-  user: 'cil',
-  password: '1234567890',
-  server: 'localhost', // You can use 'localhost\\instance' to connect to named instance
-  database: 'cilstorage',
-  connectionTimeout: 300000,
-  requestTimeout: 300000,
-  pool: {
-      idleTimeoutMillis: 300000,
-      max: 100
-  }
-  // options: {
-  //     encrypt: true // Use this if you're on Windows Azure
-  // }
-}
+// const config = {
+//   user: 'cil',
+//   password: '1234567890',
+//   server: 'localhost', // You can use 'localhost\\instance' to connect to named instance
+//   database: 'cilstorage',
+//   connectionTimeout: 300000,
+//   requestTimeout: 300000,
+//   pool: {
+//       idleTimeoutMillis: 300000,
+//       max: 100
+//   }
+//   // options: {
+//   //     encrypt: true // Use this if you're on Windows Azure
+//   // }
+// }
 printUtxo = function(utxo) {
   console.log('-- UTXO:');
   console.log('---- _txHash:', utxo._txHash)
@@ -29,6 +30,7 @@ module.exports = (factory, factoryOptions) => {
   const {Transaction} = factory;
   return class SqlStorage {
     constructor(options) {
+      const config = configs[options.sqlConfig];
       options = {
         ...factoryOptions,
         ...options

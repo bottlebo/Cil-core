@@ -1,0 +1,14 @@
+{
+  "default":{
+    "user": "cil",
+    "password": "1234567890",
+    "server": "localhost",
+    "database": "cilstorage",
+    "connectionTimeout": 300000,
+    "requestTimeout": 300000,
+    "pool": {
+        "idleTimeoutMillis": 300000,
+        "max": 100
+    }
+  }
+}
