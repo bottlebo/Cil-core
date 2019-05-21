@@ -1,31 +1,6 @@
 const sql = require('mssql/tedious');
 const configs = require('../config/sqlserver.config.json')
-const connectionString = 'mssql://cil:1234567890@localhost/cilstorage?driver=tedious';
-// const config = {
-//   user: 'cil',
-//   password: '1234567890',
-//   server: 'localhost', // You can use 'localhost\\instance' to connect to named instance
-//   database: 'cilstorage',
-//   connectionTimeout: 300000,
-//   requestTimeout: 300000,
-//   pool: {
-//       idleTimeoutMillis: 300000,
-//       max: 100
-//   }
-//   // options: {
-//   //     encrypt: true // Use this if you're on Windows Azure
-//   // }
-// }
-printUtxo = function(utxo) {
-  console.log('-- UTXO:');
-  console.log('---- _txHash:', utxo._txHash)
-  console.log('---- arrIndexes:', utxo._data.arrIndexes)
-  console.log('---- arrOutputs:')
-  for (let o of utxo._data.arrOutputs) {
-    console.log(o.amount, o.receiverAddr.toString('hex'))
-  }
-  console.log('----------------')
-}
+
 module.exports = (factory, factoryOptions) => {
   const {Transaction} = factory;
   return class SqlStorage {
@@ -40,7 +15,7 @@ module.exports = (factory, factoryOptions) => {
       this.pool.close();
       this.connPromise = this.pool.connect();
     }
-    //
+    
     async saveBlock(block) {
       await this.connPromise;
       const hash = block.getHash();
@@ -106,6 +81,7 @@ module.exports = (factory, factoryOptions) => {
         })
       );
     }
+    
     async removeBlock(blockHash) {
       await this.connPromise;
       const request = new sql.Request(this.pool);
@@ -115,14 +91,8 @@ module.exports = (factory, factoryOptions) => {
     }
 
     async saveUtxos(arrUtxos) {
-      console.log('++++++ save')
-      for (let _utxo of arrUtxos) {
-        printUtxo(_utxo)
-      }
       await this.connPromise;
-      
-
-      
+  
       await Promise.all(
         arrUtxos.map(async utxo => {
           let utxoId;
@@ -154,9 +124,6 @@ module.exports = (factory, factoryOptions) => {
       );
     }
     async deleteUtxos(arrHash) {
-      console.log('======= Delete')
-      console.log(arrHash)
-      console.log('=======')
       await this.connPromise;
 
       await Promise.all(
