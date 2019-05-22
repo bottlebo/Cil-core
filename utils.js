@@ -1,3 +1,5 @@
+const readline = require('readline');
+const fs = require('fs');
 const commandLineArgs = require('command-line-args');
 
 const arrayIntersection = (array1, array2) => {
@@ -43,6 +45,25 @@ const getMapsKeys = (...arrMaps) => {
     return arrResultKeys;
 };
 
+function questionAsync(prompt, password = false) {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+
+    if (password) {
+        process.stdout.cork();
+        rl.write(null, {ctrl: true, name: 'u'});
+    }
+
+    return new Promise(resolve => {
+        rl.question(prompt, answer => {
+            rl.close();
+            resolve(answer.trim());
+        });
+    });
+}
+
 module.exports = {
     sleep: (delay) => {
         return new Promise(resolve => {
@@ -87,7 +108,7 @@ module.exports = {
             {name: "rpcPort", type: Number, multiple: false},
             {name: "rpcAddress", type: String, multiple: false},
             {name: "genesisHash", type: String, multiple: false},
-            {name: "groupDefContract", type: String, multiple: false},
+            {name: "conciliumDefContract", type: String, multiple: false},
             {name: "privateKey", type: String, multiple: false},
             {name: "dbPath", type: String, multiple: false},
             {name: "seed", type: Boolean, multiple: false},
@@ -96,16 +117,27 @@ module.exports = {
             {name: "watchAddress", type: String, multiple: true},
             {name: "reIndexWallet", type: Boolean, multiple: false},
             {name: "walletSupport", type: Boolean, multiple: false},
-            {name: "sqlConfig", type: String, multiple: false}
+            {name: "sqlConfig", type: String, multiple: false},
+            {name: "listWallets", type: Boolean, multiple: false}
         ];
         return commandLineArgs(optionDefinitions, {camelCase: true});
     },
 
     prepareForStringifyObject,
 
+    questionAsync,
+
     stripAddressPrefix(Constants, strAddr) {
         return strAddr.substring(0, 2) === Constants.ADDRESS_PREFIX ?
             strAddr.substring(Constants.ADDRESS_PREFIX.length)
             : strAddr;
+    },
+
+    async readPrivateKeyFromFile(Crypto, path) {
+        const encodedContent = fs.readFileSync(path, 'utf8');
+
+        // TODO suppress echo
+        const password = await questionAsync('Enter password to decrypt private key: ');
+        return await Crypto.decrypt(password, encodedContent);
     }
 };

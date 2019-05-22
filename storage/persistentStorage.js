@@ -26,22 +26,25 @@ const WALLET_AUTOINCREMENT = 'WALLET_AUTO_INC';
  * @param db - levelup instance
  * @returns {Promise<any>}
  */
-const eraseDbContent = (db) => {
-    return new Promise(resolve => {
+const eraseDbContent = async (db) => {
+    const arrBuffers = [];
+    await new Promise(resolve => {
         db.createKeyStream({keyAsBuffer: true, valueAsBuffer: false})
             .on('data', function(data) {
-                db.del(data, {keyAsBuffer: true, valueAsBuffer: false});
+                arrBuffers.push({type: 'del', key: data});
+//                db.del(data, {keyAsBuffer: true, valueAsBuffer: false});
             })
             .on('close', function() {
                 resolve();
             });
     });
+    await db.batch(arrBuffers);
 };
 
 module.exports = (factory, factoryOptions) => {
     const {
         Constants, Block, BlockInfo, UTXO, ArrayOfHashes, ArrayOfAddresses, Contract,
-        TxReceipt, WitnessGroupDefinition, Peer, PatchDB, SqlStorage
+        TxReceipt, ConciliumDefinition, Peer, PatchDB, SqlStorage
     } = factory;
 
     return class Storage {
@@ -109,24 +112,24 @@ module.exports = (factory, factoryOptions) => {
             return this.createKey(UTXO_PREFIX, Buffer.from(hash, 'hex'));
         }
 
-        async _ensureArrGroupDefinition() {
-            const cont = await this.getContract(Buffer.from(Constants.GROUP_DEFINITION_CONTRACT_ADDRESS, 'hex'));
-            this._arrGroupDefinition = cont ? WitnessGroupDefinition.getFromContractData(cont.getData()) : [];
+        async _ensureArrConciliumDefinition() {
+            const cont = await this.getContract(Buffer.from(Constants.CONCILIUM_DEFINITION_CONTRACT_ADDRESS, 'hex'));
+            this._arrConciliumDefinition = cont ? ConciliumDefinition.getFromContractData(cont.getData()) : [];
         }
 
         /**
          *
          * @param {Buffer | String} publicKey
-         * @returns {Promise<Array>} of WitnessGroupDefinition this publicKey belongs to
+         * @returns {Promise<Array>} of ConciliumDefinition this publicKey belongs to
          */
-        async getWitnessGroupsByKey(publicKey) {
+        async getConciliumsByKey(publicKey) {
             const buffPubKey = Buffer.isBuffer(publicKey) ? publicKey : Buffer.from(publicKey, 'hex');
 
-            if (!Constants.GROUP_DEFINITION_CONTRACT_ADDRESS) return [];
-            await this._ensureArrGroupDefinition();
+            if (!Constants.CONCILIUM_DEFINITION_CONTRACT_ADDRESS) return [];
+            await this._ensureArrConciliumDefinition();
 
             const arrResult = [];
-            for (let def of this._arrGroupDefinition) {
+            for (let def of this._arrConciliumDefinition) {
                 if (~def.getPublicKeys().findIndex(key => key.equals(buffPubKey))) {
                     arrResult.push(def);
                 }
@@ -137,23 +140,23 @@ module.exports = (factory, factoryOptions) => {
         /**
          *
          * @param {Number} id
-         * @returns {Promise<WitnessGroupDefinition>} of groupDefinition publicKey belongs to
+         * @returns {Promise<ConciliumDefinition>} publicKey belongs to
          */
-        async getWitnessGroupById(id) {
+        async getConciliumById(id) {
 
-            if (!Constants.GROUP_DEFINITION_CONTRACT_ADDRESS) return undefined;
-            await this._ensureArrGroupDefinition();
+            if (!Constants.CONCILIUM_DEFINITION_CONTRACT_ADDRESS) return undefined;
+            await this._ensureArrConciliumDefinition();
 
-            return id > this._arrGroupDefinition.length ?
-                undefined : this._arrGroupDefinition[id];
+            return id > this._arrConciliumDefinition.length ?
+                undefined : this._arrConciliumDefinition[id];
         }
 
-        async getWitnessGroupsCount() {
+        async getConciliumsCount() {
 
-            if (!Constants.GROUP_DEFINITION_CONTRACT_ADDRESS) return 0;
-            await this._ensureArrGroupDefinition();
+            if (!Constants.CONCILIUM_DEFINITION_CONTRACT_ADDRESS) return 0;
+            await this._ensureArrConciliumDefinition();
 
-            return this._arrGroupDefinition.length;
+            return this._arrConciliumDefinition.length;
         }
 
         async saveBlock(block, blockInfo) {
@@ -386,9 +389,9 @@ module.exports = (factory, factoryOptions) => {
                 // save contracts
                 for (let [strContractAddr, contract] of statePatch.getContracts()) {
 
-                    // if we change groupDefinition contract - update cache
-                    if (Constants.GROUP_DEFINITION_CONTRACT_ADDRESS === strContractAddr) {
-                        this._arrGroupDefinition = contract.getData();
+                    // if we change concilium contract - update cache
+                    if (Constants.CONCILIUM_DEFINITION_CONTRACT_ADDRESS === strContractAddr) {
+                        this._arrConciliumDefinition = contract.getData();
                     }
                     const key = this.constructor.createKey(CONTRACT_PREFIX, Buffer.from(strContractAddr, 'hex'));
                     arrOps.push({type: 'put', key, value: contract.encode()});
@@ -703,22 +706,32 @@ module.exports = (factory, factoryOptions) => {
             const keyStart = this.constructor.createUtxoKey(Buffer.from([]));
             const keyEnd = this.constructor.createUtxoKey(Buffer.from('FF', 'hex'));
 
+            const arrRecords = [];
             await new Promise(resolve => {
-                this._db
-                    .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
-                    .on('data', async data => {
+                    this._db
+                        .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
+                        .on('data', async data => {
 
-                        // get hash from key (slice PREFIX)
-                        const hash = data.key.slice(1);
-                        const utxo = new UTXO({txHash: hash, data: data.value});
-                        for (let strAddr of this._arrStrWalletAddresses) {
-                            const arrIndexes = utxo.getOutputsForAddress(strAddr);
-                            if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
-                        }
-                    })
-                    .on('close', () => resolve());
-            }
+                            // get hash from key (slice PREFIX)
+                            const hash = data.key.slice(1);
+                            const utxo = new UTXO({txHash: hash, data: data.value});
+                            for (let strAddr of this._arrStrWalletAddresses) {
+                                const arrIndexes = utxo.getOutputsForAddress(strAddr);
+//                                if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
+                                if (arrIndexes.length) arrRecords.push({strAddr, hash});
+                            }
+                        })
+                        .on('close', () => resolve());
+                }
             );
+            for (const {strAddr, hash} of arrRecords) {
+                await this._walletWriteAddressUtxo(strAddr, hash);
+            }
+        }
+
+        async getWallets() {
+            await this._ensureWalletInitialized();
+            return this._arrStrWalletAddresses;
         }
     };
 };

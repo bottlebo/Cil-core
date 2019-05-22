@@ -245,16 +245,16 @@ describe('Application layer', () => {
                 }
             
                 addDefinition
-                (objGroupDefinition)
+                (objConcilium)
                 {
             
                     // check fee!
-                    console.log(objGroupDefinition)
+                    console.log(objConcilium)
                 }
             
                 noArguments(){}
             
-                _validateDefinition(objGroupDefinition) {
+                _validateDefinition(objConcilium) {
                 }
                 
                 // getters/setters ignored
@@ -278,7 +278,8 @@ describe('Application layer', () => {
         assert.isOk(receipt.isSuccessful());
         assert.equal(
             receipt.getCoinsUsed(),
-            factory.Constants.fees.CONTRACT_FEE + contract.getDataSize() * factory.Constants.fees.STORAGE_PER_BYTE_FEE
+            factory.Constants.fees.CONTRACT_CREATION_FEE + contract.getDataSize() *
+            factory.Constants.fees.STORAGE_PER_BYTE_FEE
         );
         assert.deepEqual(contract.getData(), {_data: 10});
 
@@ -304,73 +305,73 @@ describe('Application layer', () => {
     });
 
     it('should run contract', async () => {
-        const groupId = 10;
+        const conciliumId = 10;
         const contract = new factory.Contract({
             contractData: {value: 100},
             contractCode: '{"add": "(a){this.value+=a;}"}',
-            groupId
+            conciliumId
         });
         const app = new factory.Application();
 
         const receipt = await app.runContract(1e5, {method: 'add', arrArguments: [10]}, contract, {});
 
         assert.isOk(receipt.isSuccessful());
-        assert.equal(receipt.getCoinsUsed(), factory.Constants.fees.CONTRACT_FEE);
+        assert.equal(receipt.getCoinsUsed(), factory.Constants.fees.CONTRACT_INVOCATION_FEE);
         assert.deepEqual(contract.getData(), {value: 110});
     });
 
     it('should throw (unknown method)', async () => {
-        const groupId = 10;
+        const conciliumId = 10;
         const contract = new factory.Contract({
             contractData: {value: 100},
             contractCode: '{"add": "(a){this.value+=a;}"}',
-            groupId
+            conciliumId
         });
         const app = new factory.Application();
 
         const receipt = await app.runContract(1e5, {method: 'subtract', arrArguments: [10]}, contract, {});
         assert.isNotOk(receipt.isSuccessful());
-        assert.equal(receipt.getCoinsUsed(), factory.Constants.fees.CONTRACT_FEE);
+        assert.equal(receipt.getCoinsUsed(), factory.Constants.fees.CONTRACT_INVOCATION_FEE);
         assert.deepEqual(contract.getData(), {value: 100});
     });
 
     it('should throw (no default function)', async () => {
-        const groupId = 10;
+        const conciliumId = 10;
         const contract = new factory.Contract({
             contractData: {value: 100},
             contractCode: '{"add": "(a){this.value+=a;}"}',
-            groupId
+            conciliumId
         });
         const app = new factory.Application();
 
         const receipt = await app.runContract(1e5, '', contract, {});
         assert.isNotOk(receipt.isSuccessful());
-        assert.equal(receipt.getCoinsUsed(), factory.Constants.fees.CONTRACT_FEE);
+        assert.equal(receipt.getCoinsUsed(), factory.Constants.fees.CONTRACT_INVOCATION_FEE);
         assert.deepEqual(contract.getData(), {value: 100});
     });
 
     it('should call default function', async () => {
-        const groupId = 10;
+        const conciliumId = 10;
         const contract = new factory.Contract({
             contractData: {value: 100},
             contractCode: '{"_default": "(){this.value+=17;}"}',
-            groupId
+            conciliumId
         });
         const app = new factory.Application();
 
         const receipt = await app.runContract(1e5, '', contract, {});
         assert.isOk(receipt.isSuccessful());
-        assert.equal(receipt.getCoinsUsed(), factory.Constants.fees.CONTRACT_FEE);
+        assert.equal(receipt.getCoinsUsed(), factory.Constants.fees.CONTRACT_INVOCATION_FEE);
         assert.deepEqual(contract.getData(), {value: 117});
     });
 
     it('should call "constant function"', async () => {
-        const groupId = 10;
+        const conciliumId = 10;
         const sampleResult = {a: 10, b: 20};
         const contract = new factory.Contract({
             contractData: {sampleResult},
             contractCode: `{"test": "() {return this.sampleResult;}"}`,
-            groupId
+            conciliumId
         });
 
         const app = new factory.Application();

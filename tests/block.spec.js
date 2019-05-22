@@ -26,9 +26,9 @@ describe('Block tests', () => {
         assert.equal(block.txns.length, 1);
     });
 
-    it('should create block for specified group', async () => {
+    it('should create block for specified concilium', async () => {
         const block = new factory.Block(3);
-        assert.equal(block.witnessGroupId, 3);
+        assert.equal(block.conciliumId, 3);
     });
 
     it('should test block header fields', async () => {
@@ -44,8 +44,9 @@ describe('Block tests', () => {
         block.finish(factory.Constants.fees.TX_FEE, keyPair.publicKey);
 
         assert.isOk(block.header.timestamp);
+        assert.isOk(block.timestamp);
         assert.equal(block.header.version, 1);
-        assert.equal(block.header.witnessGroupId, 7);
+        assert.equal(block.header.conciliumId, 7);
 
         assert.isOk(Array.isArray(block.header.parentHashes));
         assert.equal(block.header.parentHashes.length, 2);
@@ -114,5 +115,79 @@ describe('Block tests', () => {
         assert.isOk(coinbase.isCoinbase());
         const restoredTx = new factory.Transaction(restoredBlock.txns[1]);
         assert.isOk(restoredTx.equals(tx));
+    });
+
+    describe('Coinbase creation', async () => {
+        let block;
+
+        beforeEach(async () => {
+            block = new factory.Block(0);
+        });
+
+        it('should create coinbase', async () => {
+            block.finish(1e6, pseudoRandomBuffer(33));
+            assert.isOk(block.txns.length, 1);
+        });
+
+        it('should create 3 outputs', async () => {
+            block.finish(1e6, pseudoRandomBuffer(33));
+
+            const tx = new factory.Transaction(block.txns[0]);
+            assert.isOk(Array.isArray(tx.outputs) && tx.outputs.length === 3);
+        });
+
+        it('should create 2 outputs (without foundation share, because its 2 small)', async () => {
+            block.finish(1e4, pseudoRandomBuffer(33), 1e4);
+
+            const tx = new factory.Transaction(block.txns[0]);
+            assert.isOk(Array.isArray(tx.outputs) && tx.outputs.length === 2);
+        });
+
+        it('should create 1 output (to make random hash for coinbase tx)', async () => {
+            block.finish(1e4, pseudoRandomBuffer(33), 1e4);
+
+            const tx = new factory.Transaction(block.txns[0]);
+            assert.isOk(Array.isArray(tx.outputs) && tx.outputs.length === 2);
+        });
+    });
+
+    describe('Block verification', async () => {
+        it('should FAIL to verify parentHashes', async () => {
+            const block = new factory.Block(0);
+            assert.throws(() => block.verify(), 'Bad block parents');
+        });
+        it('should FAIL to verify signatures', async () => {
+            const block = new factory.Block(0);
+            block.parentHashes = [pseudoRandomBuffer()];
+            assert.throws(() => block.verify(), 'Bad block signatures');
+        });
+        it('should SKIP verifying signatures', async () => {
+            const block = new factory.Block(0);
+            block.parentHashes = [pseudoRandomBuffer()];
+            assert.throws(() => block.verify(false), /Empty block/);
+        });
+        it('should FAIL to verify merkleRoot', async () => {
+            const block = new factory.Block(0);
+            block.parentHashes = [pseudoRandomBuffer()];
+            block.addWitnessSignatures([pseudoRandomBuffer(65)]);
+            block.addTx(factory.Transaction.createCoinbase());
+            assert.throws(() => block.verify(), 'Bad merkle root');
+        });
+        it('should FAIL to verify height', async () => {
+            const block = new factory.Block(0);
+            block.parentHashes = [pseudoRandomBuffer()];
+            block.addWitnessSignatures([pseudoRandomBuffer(65)]);
+            block.finish(factory.Constants.fees.TX_FEE, pseudoRandomBuffer(33));
+            assert.throws(() => block.verify(), 'Bad height');
+        });
+
+        it('should SUCCESS to verify', async () => {
+            const block = new factory.Block(0);
+            block.parentHashes = [pseudoRandomBuffer()];
+            block.addWitnessSignatures([pseudoRandomBuffer(65)]);
+            block.finish(factory.Constants.fees.TX_FEE, pseudoRandomBuffer(33));
+            block.setHeight(20);
+            block.verify();
+        });
     });
 });

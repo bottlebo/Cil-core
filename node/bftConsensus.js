@@ -21,26 +21,26 @@ module.exports = (factory) => {
     return class BftConsensus extends EventEmitter {
         /**
          *
-         * @param {String} options.group
+         * @param {String} options.concilium
          * @param {Array} options.arrPublicKeys
          * @param {Wallet} options.wallet
          */
         constructor(options) {
             super();
-            const {groupDefinition, wallet} = options;
+            const {concilium, wallet} = options;
 
             this._networkOffset = 0;
 
             this._nonce = parseInt(Math.random() * 100000);
 
-            if (!groupDefinition) throw new Error('Use group definition to construct');
-            this._groupDefinition = groupDefinition;
+            if (!concilium) throw new Error('Use concilium definition to construct');
+            this._concilium = concilium;
 
             if (!wallet) throw new Error('Specify wallet');
             this._wallet = wallet;
 
             // delegates public keys are buffers, transform it to strings, to use with maps
-            this._arrPublicKeys = groupDefinition.getDelegatesPublicKeys().sort().map(key => key.toString('hex'));
+            this._arrPublicKeys = concilium.getDelegatesPublicKeys().sort().map(key => key.toString('hex'));
 
             this._state = States.ROUND_CHANGE;
             this._roundFromNetworkTime();
@@ -53,8 +53,8 @@ module.exports = (factory) => {
             this._lastBlockTime = Date.now();
         }
 
-        get groupId() {
-            return this._groupDefinition.getGroupId();
+        get conciliumId() {
+            return this._concilium.getConciliumId();
         }
 
         updateNetworkTime(nNewOffset) {
@@ -66,7 +66,7 @@ module.exports = (factory) => {
 //        }
 
         /**
-         * Check whether this public key belongs to our group
+         * Check whether this public key belongs to our concilium
          *
          * @param {Buffer | String} pubKey
          * @return {boolean}
@@ -100,7 +100,7 @@ module.exports = (factory) => {
             // it make a sense after extracting message from MsgWitnessWitnessExpose
             const pubKeyI = witnessMsg.publicKey;
 
-            // make sure that those guys from our group
+            // make sure that those guys from our concilium
             if (!this.checkPublicKey(senderPubKey) || !this.checkPublicKey(pubKeyI)) {
                 throw new Error(`wrong public key for message ${witnessMsg.message}`);
             }
@@ -153,7 +153,7 @@ module.exports = (factory) => {
         runConsensus() {
 
             // i'm a single node (for example Initial witness)
-            if (this._groupDefinition.getQuorum() === 1 &&
+            if (this._concilium.getQuorum() === 1 &&
                 this._arrPublicKeys.includes(this._wallet.publicKey)) {
                 return this._views[this._wallet.publicKey][this._wallet.publicKey];
             }
@@ -211,7 +211,7 @@ module.exports = (factory) => {
                 return maxCount;
             }, 0);
 
-            return count >= this._groupDefinition.getQuorum() ? majorityValue : undefined;
+            return count >= this._concilium.getQuorum() ? majorityValue : undefined;
         }
 
         /**
@@ -236,7 +236,7 @@ module.exports = (factory) => {
             this._blockStateHandler(true);
 
             const message = this._createBlockAcceptMessage(
-                this._groupDefinition.getGroupId(),
+                this._concilium.getConciliumId(),
                 Buffer.from(block.hash(), 'hex')
             );
             this.emit('message', message);
@@ -251,7 +251,7 @@ module.exports = (factory) => {
             this._block = undefined;
             this._blockStateHandler(false);
 
-            const message = this._createBlockRejectMessage(this._groupDefinition.getGroupId());
+            const message = this._createBlockRejectMessage(this._concilium.getConciliumId());
             this.emit('message', message);
         }
 
@@ -438,7 +438,7 @@ module.exports = (factory) => {
             debug(
                 `BFT "${this._nonce}" restarting "ROUND_CHANGE" new round: ${this._roundNo}`);
 
-            const msg = new MsgWitnessNextRound({groupId: this.groupId, roundNo: ++this._roundNo});
+            const msg = new MsgWitnessNextRound({conciliumId: this.conciliumId, roundNo: ++this._roundNo});
             msg.sign(this._wallet.privateKey);
             this.emit('message', msg);
         }
@@ -504,16 +504,16 @@ module.exports = (factory) => {
             this._tock.end();
         }
 
-        _createBlockAcceptMessage(groupId, blockHash) {
+        _createBlockAcceptMessage(conciliumId, blockHash) {
             typeforce(typeforce.tuple('Number', typeforce.BufferN(32)), arguments);
 
-            const msgBlockAccept = new MsgWitnessBlockVote({groupId, blockHash});
+            const msgBlockAccept = new MsgWitnessBlockVote({conciliumId, blockHash});
             msgBlockAccept.sign(this._wallet.privateKey);
             return msgBlockAccept;
         }
 
-        _createBlockRejectMessage(groupId) {
-            const msgBlockReject = MsgWitnessBlockVote.reject(groupId);
+        _createBlockRejectMessage(conciliumId) {
+            const msgBlockReject = MsgWitnessBlockVote.reject(conciliumId);
             msgBlockReject.sign(this._wallet.privateKey);
             return msgBlockReject;
         }
@@ -544,7 +544,7 @@ module.exports = (factory) => {
                     arrSignatures.push(votedValue.signature);
                 }
             });
-            const quorum = this._groupDefinition.getQuorum();
+            const quorum = this._concilium.getQuorum();
 
             assert(quorum, `Quorum couldn't be zero!`);
 

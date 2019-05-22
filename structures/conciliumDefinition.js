@@ -5,17 +5,17 @@ const assert = require('assert');
 const v8 = require('v8');
 const types = require('../types');
 
-module.exports = (factory, {witnessGroupDefinitionProto}) =>
-    class WitnessGroupDefinition {
+module.exports = ({Constants}, {conciliumDefinitionProto, conciliumParametersProto}) =>
+    class ConciliumDefinition {
         constructor(data) {
             if (Buffer.isBuffer(data)) {
                 this._data = v8.deSerialize(data);
             } else if (typeof data === 'object') {
-                const errMsg = witnessGroupDefinitionProto.verify(data);
-                if (errMsg) throw new Error(`WitnessGroupDefinition: ${errMsg}`);
+                const errMsg = conciliumDefinitionProto.verify(data);
+                if (errMsg) throw new Error(`ConciliumDefinition: ${errMsg}`);
 
                 // we store publicKeys as buffers!
-                assert(data.publicKeys.length, 'No keys in group definition!');
+                assert(data.publicKeys.length, 'No keys in concilium definition!');
                 for (let i in data.publicKeys) {
                     if (!Buffer.isBuffer(data.publicKeys[i])) {
                         data.publicKeys[i] = Buffer.from(data.publicKeys[i], 'hex');
@@ -30,18 +30,18 @@ module.exports = (factory, {witnessGroupDefinitionProto}) =>
                 // if delegatesPublicKeys omitted - all of participants are delegates
                 if (!data.delegatesPublicKeys) data.delegatesPublicKeys = data.publicKeys;
 
-                this._data = witnessGroupDefinitionProto.create(data);
+                this._data = conciliumDefinitionProto.create(data);
             } else {
                 throw new Error('Construct from Buffer|Object');
             }
         }
 
-        static create(groupId, arrPublicKeys, delegatesPublicKeys, quorum) {
+        static create(conciliumId, arrPublicKeys, delegatesPublicKeys, quorum) {
             typeforce(typeforce.tuple('Number', 'Array'), arguments);
 
             return new this({
                 publicKeys: arrPublicKeys,
-                groupId,
+                conciliumId,
                 delegatesPublicKeys: delegatesPublicKeys || arrPublicKeys,
                 quorum
             });
@@ -49,12 +49,12 @@ module.exports = (factory, {witnessGroupDefinitionProto}) =>
 
         /**
          *
-         * @param {Object} objContractData - contract data, now {_arrGroupDefinitions: []}
-         * @returns {Array} of WitnessGroupDefinition
+         * @param {Object} objContractData - contract data, now {_arrConciliums: []}
+         * @returns {Array} of ConciliumDefinition
          */
         static getFromContractData(objContractData) {
-            const {_arrGroupDefinitions} = objContractData;
-            return _arrGroupDefinitions.map(objDefData => new this(objDefData));
+            const {_arrConciliums} = objContractData;
+            return _arrConciliums.map(objDefData => new this(objDefData));
         }
 
         getPublicKeys() {
@@ -65,8 +65,8 @@ module.exports = (factory, {witnessGroupDefinitionProto}) =>
             return this._data.delegatesPublicKeys;
         }
 
-        getGroupId() {
-            return this._data.groupId;
+        getConciliumId() {
+            return this._data.conciliumId;
         }
 
         setQuorum(quorum) {
@@ -81,5 +81,17 @@ module.exports = (factory, {witnessGroupDefinitionProto}) =>
 
         toObject() {
             return this._data;
+        }
+
+        getFeeTxSize() {
+            return this._data.parameters ? this._data.parameters.feeTxSize : undefined;
+        }
+
+        getContractCreationFee() {
+            return this._data.parameters ? this._data.parameters.feeContractCreation : undefined;
+        }
+
+        getContractInvocationFee() {
+            return this._data.parameters ? this._data.parameters.feeContractInvocation : undefined;
         }
     };

@@ -21,7 +21,7 @@ const createBlockInfo = () => {
     return new factory.BlockInfo({
         parentHashes: [],
         merkleRoot: pseudoRandomBuffer(),
-        witnessGroupId: 0,
+        conciliumId: 0,
         timestamp: timestamp(),
         version: 1
     });
@@ -290,8 +290,8 @@ describe('Storage tests', () => {
     });
 
     it('should apply patch with contract and getContract', async () => {
-        const groupId = 10;
-        const patch = new factory.PatchDB(groupId);
+        const conciliumId = 10;
+        const patch = new factory.PatchDB(conciliumId);
         const address = generateAddress();
         const data = {value: 10};
         const strCode = 'getData(){return this._data}';
@@ -299,7 +299,7 @@ describe('Storage tests', () => {
             const contract = new factory.Contract({
                 contractData: data,
                 contractCode: strCode,
-                groupId
+                conciliumId
             });
             contract.storeAddress(address);
             patch.setContract(contract);
@@ -310,14 +310,14 @@ describe('Storage tests', () => {
 
         const contract = await storage.getContract(address);
         assert.isOk(contract);
-        assert.equal(contract.getGroupId(), groupId);
+        assert.equal(contract.getConciliumId(), conciliumId);
         assert.deepEqual(contract.getData(), data);
         assert.equal(contract.getCode(), strCode);
     });
 
     it('should write to db encoded data (buffers)', async () => {
-        const groupId = 10;
-        const patch = new factory.PatchDB(groupId);
+        const conciliumId = 10;
+        const patch = new factory.PatchDB(conciliumId);
         const storage = new factory.Storage();
 
         const buffUtxoHash = pseudoRandomBuffer();
@@ -327,7 +327,7 @@ describe('Storage tests', () => {
             const contract = new factory.Contract({
                 contractData: {data: 1},
                 contractCode: `let code=1`,
-                groupId
+                conciliumId
             });
             contract.storeAddress(buffContractAddr);
             patch.setContract(contract);
@@ -371,7 +371,7 @@ describe('Storage tests', () => {
             const contract = new factory.Contract({
                 contractData,
                 contractCode,
-                groupId: 0
+                conciliumId: 0
             });
             contract.storeAddress(contractAddress);
             patch.setContract(contract);
@@ -385,15 +385,15 @@ describe('Storage tests', () => {
         assert.equal(contract.getCode(), contractCode);
     });
 
-    it('should read group definitions', async () => {
+    it('should read concilium definitions', async () => {
         const contractAddress = generateAddress();
-        factory.Constants.GROUP_DEFINITION_CONTRACT_ADDRESS = contractAddress;
+        factory.Constants.CONCILIUM_DEFINITION_CONTRACT_ADDRESS = contractAddress;
 
-        const def1 = factory.WitnessGroupDefinition.create(
+        const def1 = factory.ConciliumDefinition.create(
             0,
             [Buffer.from('public1'), Buffer.from('public2')]
         );
-        const def2 = factory.WitnessGroupDefinition.create(
+        const def2 = factory.ConciliumDefinition.create(
             1,
             [Buffer.from('public2'), Buffer.from('public3')]
         );
@@ -402,13 +402,13 @@ describe('Storage tests', () => {
         {
             const contract = new factory.Contract({
                 contractData: {
-                    _arrGroupDefinitions: [
+                    _arrConciliums: [
                         def1.toObject(),
                         def2.toObject()
                     ]
                 },
                 contractCode: '',
-                groupId: 0
+                conciliumId: 0
             });
             contract.storeAddress(contractAddress);
             patch.setContract(contract);
@@ -418,13 +418,13 @@ describe('Storage tests', () => {
         storage.applyPatch(patch);
 
         {
-            const arrDefs = await storage.getWitnessGroupsByKey(Buffer.from('public1'));
+            const arrDefs = await storage.getConciliumsByKey(Buffer.from('public1'));
             assert.isOk(Array.isArray(arrDefs));
             assert.equal(arrDefs.length, 1);
         }
 
         {
-            const arrDefs = await storage.getWitnessGroupsByKey(Buffer.from('public2'));
+            const arrDefs = await storage.getConciliumsByKey(Buffer.from('public2'));
             assert.isOk(Array.isArray(arrDefs));
             assert.equal(arrDefs.length, 2);
         }
@@ -432,7 +432,7 @@ describe('Storage tests', () => {
 
     it('should NOT find UTXO', async () => {
         const storage = new factory.Storage();
-        assert.isRejected(storage.getUtxo(pseudoRandomBuffer()));
+        return assert.isRejected(storage.getUtxo(pseudoRandomBuffer()));
     });
 
     it('should get UTXO', async () => {
@@ -543,12 +543,19 @@ describe('Storage tests', () => {
             storage = new factory.Storage({walletSupport: true});
         });
 
-        it('should throw (no wallet support)', async () => {
+        it('should throw _ensureWalletInitialized (no wallet support)', async () => {
             const storage = new factory.Storage();
+            return assert.isRejected(storage._ensureWalletInitialized());
+        });
 
-            assert.isRejected(storage._ensureWalletInitialized());
-            assert.isRejected(storage._walletWriteAddressUtxo());
-            assert.isRejected(storage.walletListUnspent());
+        it('should throw _walletWriteAddressUtxo (no wallet support)', async () => {
+            const storage = new factory.Storage();
+            return assert.isRejected(storage._walletWriteAddressUtxo());
+        });
+
+        it('should throw walletListUnspent (no wallet support)', async () => {
+            const storage = new factory.Storage();
+            return assert.isRejected(storage.walletListUnspent());
         });
 
         it('should load empty wallet', async () => {
@@ -666,7 +673,7 @@ describe('Storage tests', () => {
             const addr = generateAddress().toString('hex');
             storage._arrStrWalletAddresses = [addr];
 
-            assert.isRejected(storage.walletWatchAddress(addr));
+            return assert.isRejected(storage.walletWatchAddress(addr));
         });
 
         it('should add new watched address ', async () => {

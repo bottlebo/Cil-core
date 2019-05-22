@@ -51,13 +51,14 @@ const PatchWrapper = require('../storage/patch');
 const PendingBlocksManagerWrapper = require('../node/pendingBlocksManager');
 const MainDagWrapper = require('../node/mainDag');
 const RequestCacheWrapper = require('../node/requestsCache');
+const LocalTxnsWrapper = require('../node/localTxns');
 
 const TransactionWrapper = require('../structures/transaction');
 const BlockWrapper = require('../structures/block');
 const InventoryWrapper = require('../structures/inventory');
 const UtxoWrapper = require('../structures/utxo');
 const CoinsWrapper = require('../structures/coins');
-const WitnessGroupDefinition = require('../structures/witnessGroupDefinition');
+const ConciliumDefinition = require('../structures/conciliumDefinition');
 const BlockInfoWrapper = require('../structures/blockInfo');
 const ArrayOfWrapper = require('../structures/arrayOf');
 const ContractWrapper = require('../structures/contract');
@@ -88,7 +89,7 @@ class Factory {
                 this._blockImplementation = BlockWrapper(this, prototypes);
                 this._inventoryImplementation = InventoryWrapper(this, prototypes);
                 this._utxoImplementation = UtxoWrapper(this, prototypes);
-                this._witnessGroupDefinition = WitnessGroupDefinition(this, prototypes);
+                this._conciliumDefinition = ConciliumDefinition(this, prototypes);
                 this._blockInfo = BlockInfoWrapper(this, prototypes);
                 this._arrayOfHashes = ArrayOfWrapper(32);
                 this._arrayOfAddresses = ArrayOfWrapper(20);
@@ -114,6 +115,7 @@ class Factory {
                 this._pendingBlocksManagerImplementation = PendingBlocksManagerWrapper(this);
                 this._mainDagImplementation = MainDagWrapper(this);
                 this._requestCacheImplementation = RequestCacheWrapper(this);
+                this._localTxnsImplementation = LocalTxnsWrapper(this);
 
                 // all componenst should be declared above
                 this._nodeImplementation = NodeWrapper(this, {...options, workerSuspended: true});
@@ -134,6 +136,10 @@ class Factory {
         return this._mutexImplementation;
     }
 
+    get LocalTxns() {
+        return this._localTxnsImplementation;
+    }
+
     get version() {
         const arrSubversions = pack.version.split('.');
         return parseInt(arrSubversions[0]) * Math.pow(2, 16) +
@@ -141,8 +147,8 @@ class Factory {
                parseInt(arrSubversions[2]);
     }
 
-    get WitnessGroupDefinition() {
-        return this._witnessGroupDefinition;
+    get ConciliumDefinition() {
+        return this._conciliumDefinition;
     }
 
     get ArrayOfHashes() {
@@ -325,7 +331,8 @@ class Factory {
 
             utxoProto: protoStructures.lookupType("structures.UTXO"),
 
-            witnessGroupDefinitionProto: protoStructures.lookupType("structures.WitnessGroupDefinition"),
+            conciliumDefinitionProto: protoStructures.lookupType("structures.ConciliumDefinition"),
+            conciliumParametersProto: protoStructures.lookupType("structures.ConciliumParameters"),
 
             contractProto: protoStructures.lookupType("structures.Contract"),
             txReceiptProto: protoStructures.lookupType("structures.TxReceipt")
