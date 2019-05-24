@@ -19,10 +19,9 @@ module.exports = (factory, factoryOptions) => {
     async saveBlock(block) {
       await this.connPromise;
       const hash = block.getHash();
-
       const merkleRoot = block.merkleRoot.toString('hex');
-      const command = `INSERT INTO Blocks (Hash, MerkleRoot, ConciliumId, Timestamp, Version, State, Height)` +
-        ` VALUES('${hash}', '${merkleRoot}', ${block.conciliumId}, ${block.timestamp}, 1, 0, ${block.height})`;
+      const command = `INSERT INTO Blocks (Hash, MerkleRoot, ConciliumId, Timestamp, Version, State, [Height])` +
+        ` VALUES('${hash}', '${merkleRoot}', ${block.conciliumId}, ${block.timestamp}, 1, 0, ${block.getHeight()})`;
       const request = new sql.Request(this.pool);
       await request.query(command).catch(err => console.log(err))
       await Promise.all(
@@ -46,7 +45,7 @@ module.exports = (factory, factoryOptions) => {
         block.txns.map(async objTx => {
           const tx = new Transaction(objTx);
           const request = new sql.Request(this.pool);
-          await request.query(`INSERT INTO Transactions (Hash, BlockHash, Version, WitnessGroupId, Status) VALUES ('${tx.getHash()}','${hash}', 1, ${tx.witnessGroupId},'stable')`)
+          await request.query(`INSERT INTO Transactions (Hash, BlockHash, Version, ConciliumId, Status) VALUES ('${tx.getHash()}','${hash}', 1, ${tx.conciliumId},'stable')`)
             .catch(err => console.log(err));
 
           await Promise.all(
