@@ -21,8 +21,8 @@ module.exports = (factory, factoryOptions) => {
       const hash = block.getHash();
 
       const merkleRoot = block.merkleRoot.toString('hex');
-      const command = `INSERT INTO Blocks (Hash, MerkleRoot, WitnessGroupId, Timestamp, Version, State)` +
-        ` VALUES('${hash}', '${merkleRoot}', ${block.witnessGroupId}, ${block.timestamp}, 1, 0)`;
+      const command = `INSERT INTO Blocks (Hash, MerkleRoot, ConciliumId, Timestamp, Version, State, Height)` +
+        ` VALUES('${hash}', '${merkleRoot}', ${block.conciliumId}, ${block.timestamp}, 1, 0, ${block.height})`;
       const request = new sql.Request(this.pool);
       await request.query(command).catch(err => console.log(err))
       await Promise.all(
@@ -72,7 +72,7 @@ module.exports = (factory, factoryOptions) => {
               const request = new sql.Request(this.pool);
               const receiverAddr = out.receiverAddr ? out.receiverAddr.toString('hex') : '';
               const addrChangeReceiver = out.addrChangeReceiver ? out.addrChangeReceiver.toString('hex') : null;
-              const contractCode = 'contract';//out.contractCode ? out.contractCode : null;
+              const contractCode = out.contractCode ? 'contract' : null;
               await request.query(`INSERT INTO Outputs (TransactionHash, ReceiverAddr, AddrChangeReceiver, Amount, ContractCode ) VALUES ('${tx.getHash()}', '${receiverAddr}', '${addrChangeReceiver}', ${out.amount}, '${contractCode}')`)
                 .catch(err => console.log(err));
 
