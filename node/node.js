@@ -384,13 +384,12 @@ module.exports = (factory, factoryOptions) => {
 
             const lock = await this._mutex.acquire([`blockReceived`]);
             try {
-                await this._verifyBlock(block);
-
+                this._requestCache.done(block.getHash());
                 this._mapUnknownBlocks.delete(block.getHash());
+                await this._verifyBlock(block);
 
                 // store it in DAG & disk
                 await this._blockInFlight(block);
-                await this._processBlock(block, peer);
             } catch (e) {
                 await this._blockBad(block);
                 logger.error(e);
@@ -399,6 +398,7 @@ module.exports = (factory, factoryOptions) => {
             } finally {
                 this._mutex.release(lock);
             }
+            await this._processBlock(block, peer);
         }
 
         /**
@@ -450,10 +450,14 @@ module.exports = (factory, factoryOptions) => {
 
                 // if peer expose us more than MAX_BLOCKS_INV - it seems it is ahead
                 // so we should resend MSG_GET_BLOCKS later
-                if (nBlocksInMsg >= Constants.MAX_BLOCKS_INV) {
-                    peer.markAsPossiblyAhead();
-                } else {
-                    peer.markAsEven();
+                if (peer.isGetBlocksSent()) {
+                    if (invToRequest.vector.length >= Constants.MAX_BLOCKS_INV &&
+                        nBlocksInMsg >= Constants.MAX_BLOCKS_INV) {
+                        peer.markAsPossiblyAhead();
+                        peer.doneGetBlocks();
+                    } else {
+                        peer.markAsEven();
+                    }
                 }
             } catch (e) {
                 throw e;
@@ -577,12 +581,16 @@ module.exports = (factory, factoryOptions) => {
                     if (objVector.type === Constants.INV_TX) {
 
                         // we allow to request txns only from mempool!
-                        const tx = this._mempool.getTx(objVector.hash);
+                        // TODO: LocalTxns to mempool!
+                        let tx;
+                        if (this._localTxns.hasTx(objVector.hash)) tx = this._localTxns.get(objVector.hash);
+                        tx = this._mempool.getTx(objVector.hash);
                         msg = new MsgTx(tx);
                     } else if (objVector.type === Constants.INV_BLOCK) {
                         const block = await this._storage.getBlock(objVector.hash);
                         msg = new MsgBlock(block);
                     } else {
+
                         throw new Error(`Unknown inventory type: ${objVector.type}`);
                     }
                     debugMsg(
@@ -774,9 +782,15 @@ module.exports = (factory, factoryOptions) => {
                 }
             }
 
-            // next stage: request unknown blocks
-            const msg = await this._createGetBlocksMsg();
-            debugMsg(`(address: "${this._debugAddress}") sending "${msg.message}" to "${peer.address}"`);
+            // next stage: request unknown blocks or just GENESIS, if we are at very beginning
+            let msg;
+            if (!this._mainDag.getBlockInfo(Constants.GENESIS_BLOCK)) {
+                msg = this._createGetDataMsg([Constants.GENESIS_BLOCK]);
+                peer.markAsPossiblyAhead();
+            } else {
+                msg = await this._createGetBlocksMsg();
+                debugMsg(`(address: "${this._debugAddress}") sending "${msg.message}" to "${peer.address}"`);
+            }
             await peer.pushMessage(msg);
 
             // TODO: move loadDone after we got all we need from peer
@@ -1154,11 +1168,20 @@ module.exports = (factory, factoryOptions) => {
             };
         }
 
+        /**
+         * Send coins from contract
+         *
+         * @param {Patch} patchTx
+         * @param {String} strTxHash
+         * @param {String} strAddress
+         * @param {Number} amount
+         * @private
+         */
         _sendCoins(patchTx, strTxHash, strAddress, amount) {
             typeforce(typeforce.tuple(types.Patch, types.Str64, types.Address, typeforce.Number), arguments);
 
             if (amount === 0) return;
-            const internalTxHash = this._createInternalTx(patchTx, strAddress, amount);
+            const internalTxHash = this._createInternalTx(patchTx, strAddress, amount, strTxHash);
 
             // it's some sorta fake receipt, it will be overridden (or "merged") by original receipt
             const receipt = new TxReceipt({status: Constants.TX_STATUS_OK});
@@ -1663,17 +1686,18 @@ module.exports = (factory, factoryOptions) => {
          * @param {PatchDB} patch
          * @param {Buffer | String} receiver
          * @param {Number} amount
+         * @param {String} strHash
          * @returns {String} - new internal TX hash
          * @private
          */
-        _createInternalTx(patch, receiver, amount) {
-            typeforce(typeforce.tuple(types.Address, typeforce.Number), [receiver, amount]);
+        _createInternalTx(patch, receiver, amount, strHash) {
+            typeforce(typeforce.tuple(types.Address, typeforce.Number, types.Str64), [receiver, amount, strHash]);
 
             assert(amount > 0, 'Internal TX with non positive amount!');
             receiver = Buffer.isBuffer(receiver) ? receiver : Buffer.from(receiver, 'hex');
 
             const coins = new Coins(amount, receiver);
-            const txHash = Crypto.createHash(Crypto.randomBytes(32));
+            const txHash = Crypto.createHash(strHash + patch.getNonce());
             patch.createCoins(txHash, 0, coins);
 
             return txHash;
@@ -1705,7 +1729,8 @@ module.exports = (factory, factoryOptions) => {
                     const changeTxHash = this._createInternalTx(
                         patch,
                         tx.getContractChangeReceiver(),
-                        maxFee - fee
+                        maxFee - fee,
+                        tx.getHash()
                     );
                     receipt.addInternalTx(changeTxHash);
                 }
@@ -1738,6 +1763,8 @@ module.exports = (factory, factoryOptions) => {
         }
 
         /**
+         * Main worker that will be restarted periodically
+         *
          * _mapBlocksToExec is map of hash => peer (that sent us a block)
          * @returns {Promise<void>}
          * @private
@@ -1746,7 +1773,6 @@ module.exports = (factory, factoryOptions) => {
             if (this._mapBlocksToExec.size) {
                 debugBlock(`Block processor started. ${this._mapBlocksToExec.size} blocks awaiting to exec`);
 
-//                const arrReversed=[...this._mapBlocksToExec].reverse();
                 for (let [hash, peer] of this._mapBlocksToExec) {
                     let blockOrInfo = this._mainDag.getBlockInfo(hash);
                     if (!blockOrInfo) blockOrInfo = await this._storage.getBlock(hash).catch(err => debugBlock(err));
@@ -1755,9 +1781,7 @@ module.exports = (factory, factoryOptions) => {
                         if (!blockOrInfo || (blockOrInfo.isBad && blockOrInfo.isBad())) {
                             throw new Error(`Block ${hash} is not found or bad`);
                         }
-
                         await this._processBlock(blockOrInfo, peer);
-
                     } catch (e) {
                         logger.error(e);
                         if (blockOrInfo) await this._blockBad(blockOrInfo);
@@ -1765,6 +1789,13 @@ module.exports = (factory, factoryOptions) => {
                         debugBlock(`Removing block ${hash} from BlocksToExec`);
                         this._mapBlocksToExec.delete(hash);
                     }
+                }
+            } else {
+                const arrConnectedPeers = this._peerManager.getConnectedPeers();
+
+                // request rest of blocks
+                for (let peer of arrConnectedPeers) {
+                    await this._queryPeerForRestOfBlocks(peer);
                 }
             }
 
@@ -1796,9 +1827,6 @@ module.exports = (factory, factoryOptions) => {
                     const arrChildrenHashes = this._mainDag.getChildren(block.getHash());
                     for (let hash of arrChildrenHashes) {
                         this._queueBlockExec(hash, peer);
-
-                        //consume too much memory
-//                        await this._processBlock(await this._storage.getBlock(hash));
                     }
                 }
             } else {
@@ -1851,9 +1879,6 @@ module.exports = (factory, factoryOptions) => {
                 await this._acceptBlock(block, patchState);
                 await this._postAcceptBlock(block);
                 await this._informNeighbors(block);
-
-                this._requestCache.done(block.getHash());
-                await this._queryPeerForRestOfBlocks(peer);
             } catch (e) {
                 logger.error(`Failed to execute "${block.hash()}"`, e);
                 await this._blockBad(block);
@@ -1867,7 +1892,7 @@ module.exports = (factory, factoryOptions) => {
 
             // if peer is ahead (last time reply with MAX blocks) and we got everything already
             // here we could request next portion of blocks
-            if (peer.isAhead() && !peer.isGetBlocksSent() && this._requestCache.isEmpty()) {
+            if (peer.isAhead() && !peer.isGetBlocksSent()) {
                 const msg = await this._createGetBlocksMsg();
                 debugMsg(`(address: "${this._debugAddress}") sending "${msg.message}" to "${peer.address}"`);
                 await peer.pushMessage(msg);

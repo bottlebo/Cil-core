@@ -927,7 +927,7 @@ describe('Node tests', () => {
         const amount = 1000;
         const patch = new factory.PatchDB();
 
-        const strHash = node._createInternalTx(patch, address, amount);
+        const strHash = node._createInternalTx(patch, address, amount, pseudoRandomBuffer().toString('hex'));
 
         const utxo = patch.getUtxo(strHash);
         assert.isOk(utxo);
@@ -937,6 +937,14 @@ describe('Node tests', () => {
         assert.isOk(coins);
         assert.equal(coins.getAmount(), amount);
         assert.isOk(address.equals(coins.getReceiverAddr()));
+    });
+
+    it('should create deterministic hash for internal TX', async () => {
+        const node = new factory.Node();
+        const patch = new factory.PatchDB(0);
+        const strTxHash = 'c7e35e8f5a2ee41e030c8a904228e54eb3056925b6f4fcd667010c4df73d3286';
+        const strInternalHash = node._createInternalTx(patch, generateAddress(), 1000, strTxHash);
+        assert.equal(strInternalHash, 'de58878a4858b7a99d63c07766ac23e36cd42892b6d97979783d6597a644d060');
     });
 
     it('should CREATE LAST_APPLIED_BLOCKS', async () => {
@@ -1020,7 +1028,7 @@ describe('Node tests', () => {
     });
 
     it('should SKIP requesting already requested items (_handleInvMessage)', async () => {
-        const fakePeer = {pushMessage: sinon.fake(), markAsEven: sinon.fake()};
+        const fakePeer = {pushMessage: sinon.fake(), markAsEven: sinon.fake(), isGetBlocksSent: sinon.fake()};
         const msgInv = new factory.Messages.MsgInv();
 
         const inv = new factory.Inventory();
@@ -1041,7 +1049,7 @@ describe('Node tests', () => {
     });
 
     it('should REQUEST all items (_handleInvMessage)', async () => {
-        const fakePeer = {pushMessage: sinon.fake(), markAsEven: sinon.fake()};
+        const fakePeer = {pushMessage: sinon.fake(), markAsEven: sinon.fake(), isGetBlocksSent: sinon.fake()};
         const msgInv = new factory.Messages.MsgInv();
 
         const inv = new factory.Inventory();
@@ -1695,19 +1703,6 @@ describe('Node tests', () => {
                 await node._blockProcessorExecBlock(createDummyBlock(factory), peer);
                 assert.isNotOk(node._storage.getBlock.called);
                 assert.isOk(node._blockBad.calledOnce);
-            });
-
-            it('should exec and send MsgGetBlocks', async () => {
-                const peer = {isAhead: sinon.fake.returns(true)};
-                node._storage.getBlock = sinon.fake();
-                node._execBlock = sinon.fake();
-                node._acceptBlock = sinon.fake();
-                node._postAcceptBlock = sinon.fake();
-                node._informNeighbors = sinon.fake();
-                node._queryPeerForRestOfBlocks = sinon.fake();
-
-                await node._blockProcessorExecBlock(createDummyBlock(factory), peer);
-                assert.isOk(node._queryPeerForRestOfBlocks.calledOnce);
             });
         });
 
