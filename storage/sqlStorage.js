@@ -2,7 +2,7 @@ const sql = require('mssql/tedious');
 const configs = require('../config/sqlserver.config.json')
 
 module.exports = (factory, factoryOptions) => {
-  const {Transaction} = factory;
+  const { Transaction } = factory;
   return class SqlStorage {
     constructor(options) {
       const config = configs[options.sqlConfig];
@@ -11,11 +11,11 @@ module.exports = (factory, factoryOptions) => {
         ...options
       };
       this.pool = new sql.ConnectionPool(config);
-      this.pool.on('error', err => { console.log(err)});
+      this.pool.on('error', err => { console.log(err) });
       this.pool.close();
       this.connPromise = this.pool.connect();
     }
-    
+
     async saveBlock(block) {
       await this.connPromise;
       const hash = block.getHash();
@@ -43,71 +43,73 @@ module.exports = (factory, factoryOptions) => {
 
       await Promise.all(
         block.txns.map(async objTx => {
+
           const tx = new Transaction(objTx);
-          const request = new sql.Request(this.pool);
-          await request.query(`INSERT INTO Transactions (Hash, BlockHash, Version, ConciliumId, Status) VALUES ('${tx.getHash()}','${hash}', 1, ${tx.conciliumId},'stable')`)
-            .catch(err => console.log(err));
+          if (tx.outputs && tx.outputs.length) {
+            const request = new sql.Request(this.pool);
+            await request.query(`INSERT INTO Transactions (Hash, BlockHash, Version, ConciliumId, Status) VALUES ('${tx.getHash()}','${hash}', 1, ${tx.conciliumId},'stable')`)
+              .catch(err => console.log(err));
 
-          await Promise.all(
-            tx.claimProofs.map(async proof => {
-              const request = new sql.Request(this.pool);
-              const claimProof = proof ? proof.toString('hex') : '';
-              await request.query(`INSERT INTO ClaimProofs (TransactionHash, Proof) VALUES ('${tx.getHash()}', '${claimProof}')`)
-                .catch(err => console.log(err));
-            })
-          );
+            await Promise.all(
+              tx.claimProofs.map(async proof => {
+                const request = new sql.Request(this.pool);
+                const claimProof = proof ? proof.toString('hex') : '';
+                await request.query(`INSERT INTO ClaimProofs (TransactionHash, Proof) VALUES ('${tx.getHash()}', '${claimProof}')`)
+                  .catch(err => console.log(err));
+              })
+            );
 
-          await Promise.all(
-            tx.inputs.map(async input => {
-              const request = new sql.Request(this.pool);
-              const txHash = input.txHash.toString('hex');
-              await request.query(`INSERT INTO Inputs (TransactionHash, TxHash, nTxOutput) VALUES ('${tx.getHash()}', '${txHash}', ${input.nTxOutput})`)
-                .catch(err => console.log(err));
-            })
-          );
+            await Promise.all(
+              tx.inputs.map(async input => {
+                const request = new sql.Request(this.pool);
+                const txHash = input.txHash.toString('hex');
+                await request.query(`INSERT INTO Inputs (TransactionHash, TxHash, nTxOutput) VALUES ('${tx.getHash()}', '${txHash}', ${input.nTxOutput})`)
+                  .catch(err => console.log(err));
+              })
+            );
 
-          await Promise.all(
-            tx.outputs.map(async out => {
-              const request = new sql.Request(this.pool);
-              const receiverAddr = out.receiverAddr ? out.receiverAddr.toString('hex') : '';
-              const addrChangeReceiver = out.addrChangeReceiver ? out.addrChangeReceiver.toString('hex') : null;
-              const contractCode = out.contractCode ? 'contract' : null;
-              await request.query(`INSERT INTO Outputs (TransactionHash, ReceiverAddr, AddrChangeReceiver, Amount, ContractCode ) VALUES ('${tx.getHash()}', '${receiverAddr}', '${addrChangeReceiver}', ${out.amount}, '${contractCode}')`)
-                .catch(err => console.log(err));
-
-            })
-          );
+            await Promise.all(
+              tx.outputs.map(async out => {
+                const request = new sql.Request(this.pool);
+                const receiverAddr = out.receiverAddr ? out.receiverAddr.toString('hex') : '';
+                const addrChangeReceiver = out.addrChangeReceiver ? out.addrChangeReceiver.toString('hex') : null;
+                const contractCode = out.contractCode ? 'contract' : null;
+                await request.query(`INSERT INTO Outputs (TransactionHash, ReceiverAddr, AddrChangeReceiver, Amount, ContractCode ) VALUES ('${tx.getHash()}', '${receiverAddr}', '${addrChangeReceiver}', ${out.amount}, '${contractCode}')`)
+                  .catch(err => console.log(err));
+              })
+            );
+          }
         })
       );
     }
-    
+
     async removeBlock(blockHash) {
       await this.connPromise;
-      const request = new sql.Request(this.pool);
 
+      const request = new sql.Request(this.pool);
       const command = `DELETE FROM Blocks WHERE Hash='${blockHash}'`;
       await request.query(command).catch(err => console.log(err));
     }
 
     async saveUtxos(arrUtxos) {
       await this.connPromise;
-  
+
       await Promise.all(
         arrUtxos.map(async utxo => {
           let utxoId;
           const request = new sql.Request(this.pool);
           const txHash = utxo._txHash.toString('hex');
           let result = await request.query(`SELECT Id FROM Utxo WHERE TransactionHash='${txHash}'`)
-                                    .catch(err => console.log(err));
+            .catch(err => console.log(err));
           if (result.recordset.length) {
             utxoId = result.recordset[0].Id;
             await request.query(`DELETE FROM UtxoIndexOutputs WHERE UtxoId = ${utxoId}`)
-                         .catch(err => console.log(err.originalError.info));
+              .catch(err => console.log(err.originalError.info));
 
           }
           else {
             result = await request.query(`INSERT INTO Utxo (TransactionHash) OUTPUT Inserted.Id VALUES ('${txHash}')`)
-                                  .catch(err => console.log(err));
+              .catch(err => console.log(err));
           }
           utxoId = result.recordset[0].Id;
           await Promise.all(
@@ -116,7 +118,7 @@ module.exports = (factory, factoryOptions) => {
               const amount = utxo._data.arrOutputs[i].amount;
               const receiverAddr = utxo._data.arrOutputs[i].receiverAddr.toString('hex');
               await request.query(`INSERT INTO UtxoIndexOutputs (UtxoId, [Index], Amount, ReceiverAddr) VALUES (${utxoId}, ${index}, ${amount}, '${receiverAddr}')`)
-                           .catch(err => console.log(err));
+                .catch(err => console.log(err));
             })
           )
         })
