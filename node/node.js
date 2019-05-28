@@ -37,8 +37,7 @@ module.exports = (factory, factoryOptions) => {
         BlockInfo,
         Mutex,
         RequestCache,
-        TxReceipt,
-        LocalTxns
+        TxReceipt
     } = factory;
     const {
         MsgCommon,
@@ -80,39 +79,8 @@ module.exports = (factory, factoryOptions) => {
             // create mempool
             this._mempool = new Mempool(options);
 
-            // create storage for own TXns and load saved TXns
-            this._localTxns = new LocalTxns(options);
-
             this._transport = new Transport(options);
             this._transport.on('connect', this._incomingConnection.bind(this));
-            this._listenPromise = this._transport.listen()
-                .then(() => {
-
-                    this._myPeerInfo = new PeerInfo({
-                        capabilities: [
-                            {service: Constants.NODE}
-                        ],
-                        address: Transport.strToAddress(this._transport.myAddress),
-                        port: this._transport.port
-                    });
-
-                    // used only for debugging purpose. Feel free to remove
-                    this._debugAddress = this._transport.myAddress;
-
-                    this._peerManager =
-                        new PeerManager({transport: this._transport, storage: this._storage, ...options});
-
-                    // TODO: add handler for new peer, to bradcast it to neighbour (connected peers)!
-                    this._peerManager.on('message', this._incomingMessage.bind(this));
-                    debugNode(`(address: "${this._debugAddress}") start listening`);
-                    this._peerManager.on('disconnect', this._peerDisconnect.bind(this));
-
-                    //start RPC
-                    if (options.rpcAddress) {
-                        this._rpc = new RPC(this, options);
-                    }
-                })
-                .catch(err => console.error(err));
 
             this._mapBlocksToExec = new Map();
             this._mapUnknownBlocks = new Map();
@@ -120,11 +88,46 @@ module.exports = (factory, factoryOptions) => {
             this._app = new Application(options);
 
             this._rebuildPromise = this._rebuildBlockDb();
+            this._listenPromise = this._initNetwork(options);
 
             this._msecOffset = 0;
 
             this._reconnectTimer = new Tick(this);
             this._requestCache = new RequestCache();
+        }
+
+        _initNetwork(options) {
+            return new Promise(async resolve => {
+                const nRebuildStarted = Date.now();
+                await this._rebuildPromise;
+                await this._transport.listen();
+                logger.log(`Rebuild took ${Date.now() - nRebuildStarted} msec.`);
+
+                this._myPeerInfo = new PeerInfo({
+                    capabilities: [
+                        {service: Constants.NODE}
+                    ],
+                    address: Transport.strToAddress(this._transport.myAddress),
+                    port: this._transport.port
+                });
+
+                this._debugAddress = this._transport.myAddress;
+
+                this._peerManager =
+                    new PeerManager({transport: this._transport, storage: this._storage, ...options});
+
+                // TODO: add handler for new peer, to bradcast it to neighbour (connected peers)!
+                this._peerManager.on('message', this._incomingMessage.bind(this));
+                debugNode(`(address: "${this._debugAddress}") start listening`);
+                this._peerManager.on('disconnect', this._peerDisconnect.bind(this));
+
+                //start RPC
+                if (options.rpcAddress) {
+                    this._rpc = new RPC(this, options);
+                }
+
+                resolve();
+            });
         }
 
         get rpc() {
@@ -140,7 +143,7 @@ module.exports = (factory, factoryOptions) => {
         }
 
         ensureLoaded() {
-            return Promise.all([this._listenPromise, this._rebuildPromise]);
+            return Promise.all([this._listenPromise, this._rebuildPromise]).catch(err => console.error(err));
         }
 
         async bootstrap() {
@@ -381,7 +384,10 @@ module.exports = (factory, factoryOptions) => {
                 logger.error(`Block ${block.hash()} already known!`);
                 return;
             }
+            await this._handleArrivedBlock(block, peer);
+        }
 
+        async _handleArrivedBlock(block, peer) {
             const lock = await this._mutex.acquire([`blockReceived`]);
             try {
                 this._requestCache.done(block.getHash());
@@ -393,7 +399,7 @@ module.exports = (factory, factoryOptions) => {
             } catch (e) {
                 await this._blockBad(block);
                 logger.error(e);
-                peer.misbehave(10);
+                if (peer) peer.misbehave(10);
                 throw e;
             } finally {
                 this._mutex.release(lock);
@@ -489,8 +495,9 @@ module.exports = (factory, factoryOptions) => {
             debugMsg(
                 `(address: "${this._debugAddress}") sending ${inventory.vector.length} blocks to "${peer.address}"`);
 
+            // TODO: find a better place to inform peer about our local TXNS
             // append local TXns to this inv
-            const arrLocalTxHashes = this._localTxns.getAllTxnHashes();
+            const arrLocalTxHashes = this._mempool.getLocalTxnHashes();
             arrLocalTxHashes.forEach(hash => inventory.addTxHash(hash));
             debugMsg(
                 `(address: "${this._debugAddress}") sending ${arrLocalTxHashes.length} local TXns to "${peer.address}"`);
@@ -581,10 +588,7 @@ module.exports = (factory, factoryOptions) => {
                     if (objVector.type === Constants.INV_TX) {
 
                         // we allow to request txns only from mempool!
-                        // TODO: LocalTxns to mempool!
-                        let tx;
-                        if (this._localTxns.hasTx(objVector.hash)) tx = this._localTxns.get(objVector.hash);
-                        tx = this._mempool.getTx(objVector.hash);
+                        const tx = this._mempool.getTx(objVector.hash);
                         msg = new MsgTx(tx);
                     } else if (objVector.type === Constants.INV_BLOCK) {
                         const block = await this._storage.getBlock(objVector.hash);
@@ -836,8 +840,8 @@ module.exports = (factory, factoryOptions) => {
             try {
                 switch (event) {
                     case 'tx':
-                        await this._processReceivedTx(content);
-                        this._localTxns.addTx(content);
+                        await this._processReceivedTx(content, false);
+                        this._mempool.addLocalTx(content);
                         break;
                     case 'txReceipt':
                         return await this._storage.getTxReceipt(content);
@@ -921,7 +925,7 @@ module.exports = (factory, factoryOptions) => {
          * @returns {Promise<void>}
          * @private
          */
-        async _processReceivedTx(tx) {
+        async _processReceivedTx(tx, bStoreInMempool = true) {
             typeforce(types.Transaction, tx);
 
             // TODO: check against DB & valid claim here rather slow, consider light checks, now it's heavy strict check
@@ -932,7 +936,7 @@ module.exports = (factory, factoryOptions) => {
 
             await this._storage.checkTxCollision([tx.hash()]);
             await this._processTx(undefined, false, tx);
-            this._mempool.addTx(tx);
+            if (bStoreInMempool) this._mempool.addTx(tx);
 
             await this._informNeighbors(tx);
         }
@@ -1336,7 +1340,6 @@ module.exports = (factory, factoryOptions) => {
 
             const arrStrHashes = block.getTxHashes();
             this._mempool.removeForBlock(arrStrHashes);
-            this._localTxns.removeForBlock(arrStrHashes);
 
             // check for finality
             await this._processFinalityResults(
