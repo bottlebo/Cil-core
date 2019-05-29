@@ -8,6 +8,6 @@ RUN apk update && apk add --no-cache bash git openssh python python-dev make bui
 RUN npm install
 
 CMD node /app/index.js
-EXPOSE 8223
-EXPOSE 8222
+EXPOSE 18222
+EXPOSE 18223
 
