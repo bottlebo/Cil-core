@@ -1,13 +1,11 @@
-FROM node:10.4.0-alpine
+FROM nikolaik/python-nodejs:python2.7-nodejs10
 
 RUN mkdir /app/
 WORKDIR /app/
 
 COPY . /app/
-RUN apk update && apk add --no-cache bash git openssh python python-dev make build-base
 RUN npm install
 
-CMD node /app/index.js
-EXPOSE 8223
+CMD node /app/index.js --rpcAddress 0.0.0.0
 EXPOSE 8222
-
+EXPOSE 8223
