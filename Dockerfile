@@ -6,6 +6,6 @@ WORKDIR /app/
 COPY . /app/
 RUN npm install
 
-CMD node /app/index.js --rpcAddress 0.0.0.0
+CMD node /app/index.js --rpcAddress 0.0.0.0 --txIndex
 EXPOSE 8222
 EXPOSE 8223
