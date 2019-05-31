@@ -6,6 +6,9 @@ WORKDIR /app/
 COPY . /app/
 RUN npm install
 
-CMD node /app/index.js --rpcAddress 0.0.0.0 --txIndex --sqlConfig docker-prod
+ADD https://github.com/ufoscout/docker-compose-wait/releases/download/2.5.0/wait /wait
+RUN chmod +x /wait
+
+CMD /wait && node /app/index.js --rpcAddress 0.0.0.0 --txIndex --sqlConfig docker-prod
 EXPOSE 8222
 EXPOSE 8223
