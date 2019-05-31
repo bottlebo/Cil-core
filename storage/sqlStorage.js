@@ -1,19 +1,14 @@
 const sql = require('mssql/tedious');
-const path = require('path');
-const fs = require('fs');
-
-const {SQL_CONFIG_PATH} = process.env;
-const configs = JSON.parse(fs.readFileSync(path.resolve(SQL_CONFIG_PATH || 'config/sqlserver.config.json')));
+const assert = require('assert');
+const configs = require('../config/sqlserver.config.json');
 
 module.exports = (factory, factoryOptions) => {
     const {Transaction} = factory;
     return class SqlStorage {
         constructor(options) {
             const config = configs[options.sqlConfig];
-            options = {
-                ...factoryOptions,
-                ...options
-            };
+            assert(config, `No config found for sqlConfig=${options.sqlConfig}`);
+
             this.pool = new sql.ConnectionPool(config);
             this.pool.on('error', err => { console.log(err); });
             this.pool.close();
