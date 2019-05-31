@@ -37,7 +37,8 @@ module.exports = (factory, factoryOptions) => {
         BlockInfo,
         Mutex,
         RequestCache,
-        TxReceipt
+        TxReceipt,
+        UTXO
     } = factory;
     const {
         MsgCommon,
@@ -1185,11 +1186,11 @@ module.exports = (factory, factoryOptions) => {
             typeforce(typeforce.tuple(types.Patch, types.Str64, types.Address, typeforce.Number), arguments);
 
             if (amount === 0) return;
-            const internalTxHash = this._createInternalTx(patchTx, strAddress, amount, strTxHash);
+            const internalUtxo = this._createInternalTx(patchTx, strAddress, amount, strTxHash);
 
             // it's some sorta fake receipt, it will be overridden (or "merged") by original receipt
             const receipt = new TxReceipt({status: Constants.TX_STATUS_OK});
-            receipt.addInternalTx(internalTxHash);
+            receipt.addInternalUtxo(internalUtxo);
             patchTx.setReceipt(strTxHash, receipt);
         }
 
@@ -1280,8 +1281,7 @@ module.exports = (factory, factoryOptions) => {
             const isGenesis = this.isGenesisBlock(block);
 
             // double check: whether we already processed this block?
-            const blockInfoDag = this._mainDag.getBlockInfo(block.getHash());
-            if (blockInfoDag && (blockInfoDag.isFinal() || this._pendingBlocks.hasBlock(block.getHash()))) {
+            if (this._isBlockExecuted(block.getHash())) {
                 logger.error(`Trying to process ${block.getHash()} more than one time!`);
                 return null;
             }
@@ -1690,7 +1690,7 @@ module.exports = (factory, factoryOptions) => {
          * @param {Buffer | String} receiver
          * @param {Number} amount
          * @param {String} strHash
-         * @returns {String} - new internal TX hash
+         * @returns {UTXO} - new UTXO
          * @private
          */
         _createInternalTx(patch, receiver, amount, strHash) {
@@ -1701,9 +1701,11 @@ module.exports = (factory, factoryOptions) => {
 
             const coins = new Coins(amount, receiver);
             const txHash = Crypto.createHash(strHash + patch.getNonce());
-            patch.createCoins(txHash, 0, coins);
+            const utxo = new UTXO({txHash});
+            utxo.addCoins(0, coins);
+            patch.setUtxo(utxo);
 
-            return txHash;
+            return utxo;
         }
 
         /**
@@ -1729,13 +1731,13 @@ module.exports = (factory, factoryOptions) => {
                 fee = receipt.getCoinsUsed();
 
                 if (maxFee - fee !== 0) {
-                    const changeTxHash = this._createInternalTx(
+                    const changeUtxo = this._createInternalTx(
                         patch,
                         tx.getContractChangeReceiver(),
                         maxFee - fee,
                         tx.getHash()
                     );
-                    receipt.addInternalTx(changeTxHash);
+                    receipt.addInternalUtxo(changeUtxo);
                 }
 
                 // receipt changed by ref, no need to add it to patch
@@ -1879,9 +1881,11 @@ module.exports = (factory, factoryOptions) => {
             const lock = await this._mutex.acquire(['blockExec']);
             try {
                 const patchState = await this._execBlock(block);
-                await this._acceptBlock(block, patchState);
-                await this._postAcceptBlock(block);
-                await this._informNeighbors(block);
+                if (patchState) {
+                    await this._acceptBlock(block, patchState);
+                    await this._postAcceptBlock(block);
+                    await this._informNeighbors(block);
+                }
             } catch (e) {
                 logger.error(`Failed to execute "${block.hash()}"`, e);
                 await this._blockBad(block);
@@ -1990,6 +1994,19 @@ module.exports = (factory, factoryOptions) => {
 
             // look it in mempool first
             if (this._mempool.hasTx(strTxHash)) return formResult(this._mempool.getTx(strTxHash), 'mempool', undefined);
+
+            // look among internal TXns
+            const buffSourceTx = await this._storage.findInternalTx(strTxHash);
+            if (buffSourceTx) {
+                const receipt = await this._storage.getTxReceipt(buffSourceTx);
+                const coins = receipt.getCoinsForTx(strTxHash);
+
+                return formResult(
+                    {coins: coins.getRawData(), from: buffSourceTx.toString('hex')},
+                    'internal',
+                    undefined
+                );
+            }
 
             // search by tx will work only with --txIndex so let's use that index
             const block = await this._storage.findBlockByTxHash(strTxHash);
