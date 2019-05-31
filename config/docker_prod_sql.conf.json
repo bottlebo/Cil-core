@@ -1,0 +1,14 @@
+{
+  "default": {
+    "user": "cil",
+    "password": "1234567890",
+    "server": "app_mssql-prod_1",
+    "database": "cilstorage",
+    "connectionTimeout": 300000,
+    "requestTimeout": 300000,
+    "pool": {
+      "idleTimeoutMillis": 300000,
+      "max": 100
+    }
+  }
+}
