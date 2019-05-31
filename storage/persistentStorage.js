@@ -101,6 +101,7 @@ module.exports = (factory, factoryOptions) => {
          * @return {Promise<void>|*}
          */
         ready() {
+            if (this._sqlStorage) return this._sqlStorage.connPromise;
             return Promise.resolve();
         }
 
