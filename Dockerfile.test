@@ -6,6 +6,8 @@ WORKDIR /app/
 COPY . /app/
 RUN npm install
 
+ENV SQL_CONFIG_PATH=config/docker_test_sql.conf.json
+
 CMD node /app/index.js --rpcAddress 0.0.0.0 --txIndex
 EXPOSE 18222
 EXPOSE 18223
