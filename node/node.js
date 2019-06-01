@@ -99,10 +99,11 @@ module.exports = (factory, factoryOptions) => {
 
         _initNetwork(options) {
             return new Promise(async resolve => {
-                const nRebuildStarted = Date.now();
-                await this._rebuildPromise;
+
+                // we'll init network after all local tasks are done
+                await Promise.all([this._rebuildPromise]);
+
                 await this._transport.listen();
-                logger.log(`Rebuild took ${Date.now() - nRebuildStarted} msec.`);
 
                 this._myPeerInfo = new PeerInfo({
                     capabilities: [
@@ -385,23 +386,26 @@ module.exports = (factory, factoryOptions) => {
                 logger.error(`Block ${block.hash()} already known!`);
                 return;
             }
-            await this._handleArrivedBlock(block, peer);
-        }
-
-        async _handleArrivedBlock(block, peer) {
-            const lock = await this._mutex.acquire([`blockReceived`]);
             try {
-                this._requestCache.done(block.getHash());
-                this._mapUnknownBlocks.delete(block.getHash());
-                await this._verifyBlock(block);
-
-                // store it in DAG & disk
-                await this._blockInFlight(block);
+                await this._handleArrivedBlock(block, peer);
             } catch (e) {
                 await this._blockBad(block);
                 logger.error(e);
                 if (peer) peer.misbehave(10);
                 throw e;
+            }
+        }
+
+        async _handleArrivedBlock(block, peer) {
+            const lock = await this._mutex.acquire([`blockReceived`]);
+            try {
+                await this._verifyBlock(block);
+
+                // store it in DAG & disk
+                await this._blockInFlight(block);
+
+                this._requestCache.done(block.getHash());
+                this._mapUnknownBlocks.delete(block.getHash());
             } finally {
                 this._mutex.release(lock);
             }
@@ -423,7 +427,7 @@ module.exports = (factory, factoryOptions) => {
 
             const lock = await this._mutex.acquire(['inventory']);
             try {
-                let nBlocksInMsg = 0;
+                let nBlockToRequest = 0;
                 for (let objVector of invMsg.inventory.vector) {
 
                     // we already requested it (from another peer), so let's skip it
@@ -435,9 +439,9 @@ module.exports = (factory, factoryOptions) => {
                         // TODO: more checks? for example search this hash in UTXOs?
                         bShouldRequest = !this._mempool.hasTx(objVector.hash);
                     } else if (objVector.type === Constants.INV_BLOCK) {
-                        nBlocksInMsg++;
                         bShouldRequest = !this._requestCache.isRequested(objVector.hash) &&
                                          !await this._storage.hasBlock(objVector.hash);
+                        if (bShouldRequest) nBlockToRequest++;
                     }
 
                     if (bShouldRequest) {
@@ -458,8 +462,7 @@ module.exports = (factory, factoryOptions) => {
                 // if peer expose us more than MAX_BLOCKS_INV - it seems it is ahead
                 // so we should resend MSG_GET_BLOCKS later
                 if (peer.isGetBlocksSent()) {
-                    if (invToRequest.vector.length >= Constants.MAX_BLOCKS_INV &&
-                        nBlocksInMsg >= Constants.MAX_BLOCKS_INV) {
+                    if (nBlockToRequest > 1) {
                         peer.markAsPossiblyAhead();
                         peer.doneGetBlocks();
                     } else {
@@ -841,9 +844,7 @@ module.exports = (factory, factoryOptions) => {
             try {
                 switch (event) {
                     case 'tx':
-                        await this._processReceivedTx(content, false);
-                        this._mempool.addLocalTx(content);
-                        break;
+                        return await this._acceptLocalTx(content);
                     case 'txReceipt':
                         return await this._storage.getTxReceipt(content);
                     case 'getBlock':
@@ -920,14 +921,45 @@ module.exports = (factory, factoryOptions) => {
             }
         }
 
+        async _acceptLocalTx(newTx) {
+            const patchNewTx = await this._processReceivedTx(newTx, false);
+
+            // let's check for patch conflicts with other local txns
+
+            try {
+                for (let {strTxHash, patchTx} of this._mempool.getLocalTxnsPatches()) {
+                    if (!patchTx) {
+
+                        // mempool just loaded, we need to exec all stored local txns
+                        const localTx = this._mempool.getTx(strTxHash);
+
+                        // exec it. no need to validate. local txns were already validated
+                        const {patchThisTx} = await this._processTx(undefined, false, localTx);
+
+                        // store it back with patch
+                        this._mempool.addLocalTx(localTx, patchThisTx);
+                        patchTx = patchThisTx;
+                    }
+                    patchTx.merge(patchNewTx);
+                }
+
+                // all merges passed - accept new tx
+                this._mempool.addLocalTx(newTx, patchNewTx);
+            } catch (e) {
+                throw new Error(`Tx is not accepted: ${e.message}`);
+            }
+        }
+
         /**
          *
          * @param {Transaction} tx
-         * @returns {Promise<void>}
+         * @returns {Promise<PatchDB>}
          * @private
          */
         async _processReceivedTx(tx, bStoreInMempool = true) {
             typeforce(types.Transaction, tx);
+
+            const strTxHash = tx.getHash();
 
             // TODO: check against DB & valid claim here rather slow, consider light checks, now it's heavy strict check
             // this will check for double spend in pending txns
@@ -935,11 +967,19 @@ module.exports = (factory, factoryOptions) => {
 
             if (this._mempool.hasTx(tx.hash())) return;
 
-            await this._storage.checkTxCollision([tx.hash()]);
-            await this._processTx(undefined, false, tx);
-            if (bStoreInMempool) this._mempool.addTx(tx);
+            let patchThisTx;
+            try {
+                await this._storage.checkTxCollision([strTxHash]);
+                ({patchThisTx} = await this._processTx(undefined, false, tx));
+                if (bStoreInMempool) this._mempool.addTx(tx);
+            } catch (e) {
+                this._mempool.storeBadTxHash(strTxHash);
+                throw e;
+            }
 
             await this._informNeighbors(tx);
+
+            return patchThisTx;
         }
 
         /**
@@ -1575,15 +1615,15 @@ module.exports = (factory, factoryOptions) => {
                 : blockOrBlockInfo;
 
             blockInfo.markAsBad();
-            await this._storeBlockAndInfo(undefined, blockInfo);
+            await this._storeBlockAndInfo(undefined, blockInfo, false);
         }
 
-        async _blockInFlight(block) {
+        async _blockInFlight(block, bOnlyDag = false) {
             debugNode(`Block "${block.getHash()}" stored`);
 
             const blockInfo = new BlockInfo(block.header);
             blockInfo.markAsInFlight();
-            await this._storeBlockAndInfo(block, blockInfo);
+            await this._storeBlockAndInfo(block, blockInfo, bOnlyDag);
         }
 
         _isBlockExecuted(hash) {
@@ -1601,10 +1641,14 @@ module.exports = (factory, factoryOptions) => {
          *
          * @param {Block | undefined} block
          * @param {BlockInfo} blockInfo
+         * @param {Boolean} bOnlyDag - store only in DAG
          * @private
          */
-        async _storeBlockAndInfo(block, blockInfo) {
+        async _storeBlockAndInfo(block, blockInfo, bOnlyDag) {
             typeforce(typeforce.tuple(typeforce.oneOf(types.Block, undefined), types.BlockInfo), arguments);
+
+            this._mainDag.addBlock(blockInfo);
+            if (bOnlyDag) return;
 
             if (blockInfo.isBad()) {
 
@@ -1626,7 +1670,6 @@ module.exports = (factory, factoryOptions) => {
                 // save block, and it's info
                 await this._storage.saveBlock(block, blockInfo).catch(err => debugNode(err));
             }
-            this._mainDag.addBlock(blockInfo);
         }
 
         /**
@@ -1644,8 +1687,6 @@ module.exports = (factory, factoryOptions) => {
 
                 // parent is bad
                 if (blockInfo && blockInfo.isBad()) {
-
-                    // it will be marked as bad in _handleBlockMessage
                     throw new Error(
                         `Block ${block.getHash()} refer to bad parent ${hash}`);
                 }
@@ -1756,11 +1797,17 @@ module.exports = (factory, factoryOptions) => {
         async _rebuildBlockDb() {
             await this._storage.ready();
 
+            const nRebuildStarted = Date.now();
+
             const arrPendingBlocksHashes = await this._storage.getPendingBlockHashes();
             const arrLastStableHashes = await this._storage.getLastAppliedBlockHashes();
 
             await this._buildMainDag(arrLastStableHashes, arrPendingBlocksHashes);
             await this._rebuildPending(arrLastStableHashes, arrPendingBlocksHashes);
+
+            debugNode(`Rebuild took ${Date.now() - nRebuildStarted} msec.`);
+
+            this._mempool.loadLocalTxnsFromDisk();
         }
 
         async _nodeWorker() {
@@ -1782,7 +1829,13 @@ module.exports = (factory, factoryOptions) => {
 
                 for (let [hash, peer] of this._mapBlocksToExec) {
                     let blockOrInfo = this._mainDag.getBlockInfo(hash);
-                    if (!blockOrInfo) blockOrInfo = await this._storage.getBlock(hash).catch(err => debugBlock(err));
+                    if (!blockOrInfo) {
+
+                        // we have no block in DAG, but possibly have it in storage
+                        const block = await this._storage.getBlock(hash).catch(err => debugBlock(err));
+                        if (block) await this._blockInFlight(block, true);
+                        blockOrInfo = block;
+                    }
 
                     try {
                         if (!blockOrInfo || (blockOrInfo.isBad && blockOrInfo.isBad())) {
@@ -1797,7 +1850,7 @@ module.exports = (factory, factoryOptions) => {
                         this._mapBlocksToExec.delete(hash);
                     }
                 }
-            } else {
+            } else if (this._requestCache.isEmpty()) {
                 const arrConnectedPeers = this._peerManager.getConnectedPeers();
 
                 // request rest of blocks
@@ -1913,7 +1966,7 @@ module.exports = (factory, factoryOptions) => {
             // request all unknown blocks
             const {mapPeerBlocks, mapPeerAhead} = this._createMapBlockPeer();
             for (let peer of mapPeerAhead.values()) {
-                this._queryPeerForRestOfBlocks(peer);
+                await this._queryPeerForRestOfBlocks(peer);
             }
             await this._sendMsgGetDataToPeers(mapPeerBlocks);
 
