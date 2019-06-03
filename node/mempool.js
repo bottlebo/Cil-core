@@ -25,11 +25,7 @@ module.exports = ({Constants, Transaction}) =>
             this._fileName = path.resolve(dbPath || Constants.DB_PATH_PREFIX, Constants.LOCAL_TX_FILE_NAME);
             this._mapLocalTxns = new Map();
 
-            if (testStorage) {
-                this._loadFromDisk = this._dumpToDisk = () => {};
-            } else {
-                this._loadFromDisk();
-            }
+            this._setBadTxnsHash = new Set();
         }
 
         /**
@@ -81,7 +77,9 @@ module.exports = ({Constants, Transaction}) =>
             typeforce(types.Hash256bit, txHash);
 
             let strTxHash = Buffer.isBuffer(txHash) ? txHash.toString('hex') : txHash;
-            return this._mapTxns.has(strTxHash) || this._mapLocalTxns.has(strTxHash);
+            return this._mapTxns.has(strTxHash) ||
+                   this._mapLocalTxns.has(strTxHash) ||
+                   this._setBadTxnsHash.has(txHash);
         }
 
         /**
@@ -101,20 +99,21 @@ module.exports = ({Constants, Transaction}) =>
         }
 
         /**
-         * throws error!
-         * used for wire tx (it's already validated)
+         * could be replaced with patch, because it loaded without patches
          *
          * @param {Transaction} tx - transaction to add
+         * @param {PatchDB} patchTx - patch for this tx (result of tx exec)
          */
-        addLocalTx(tx) {
+        addLocalTx(tx, patchTx) {
+            typeforce(types.Transaction, tx);
 
             const strHash = tx.getHash();
-            if (this.hasTx(strHash)) throw new Error(`Local tx ${strHash} already in mempool`);
+            const prevSize = this._mapLocalTxns.size;
 
-            this._mapLocalTxns.set(strHash, tx);
+            this._mapLocalTxns.set(strHash, {tx, patchTx});
             debug(`Local TX ${strHash} added`);
 
-            this._dumpToDisk();
+            if (prevSize !== this._mapLocalTxns.size) this._dumpToDisk();
         }
 
         /**
@@ -127,10 +126,8 @@ module.exports = ({Constants, Transaction}) =>
 
             let strTxHash = Buffer.isBuffer(txHash) ? txHash.toString('hex') : txHash;
             if (!this.hasTx(strTxHash)) throw new Error(`Mempool: No tx found by hash ${strTxHash}`);
-            let tx = this._mapTxns.get(strTxHash);
-
-            if (tx) return tx.tx;
-            return this._mapLocalTxns.get(strTxHash);
+            let tx = this._mapTxns.get(strTxHash) || this._mapLocalTxns.get(strTxHash);
+            return tx.tx;
         }
 
         /**
@@ -147,8 +144,8 @@ module.exports = ({Constants, Transaction}) =>
                 if (r.tx.conciliumId === conciliumId) arrResult.push(r.tx);
             }
 
-            for (let tx of this._mapLocalTxns.values()) {
-                if (tx.conciliumId === conciliumId) arrResult.push(tx);
+            for (let r of this._mapLocalTxns.values()) {
+                if (r.tx.conciliumId === conciliumId) arrResult.push(r.tx);
             }
             return arrResult;
         }
@@ -163,6 +160,14 @@ module.exports = ({Constants, Transaction}) =>
 
         /**
          *
+         * @return {Array[{strTxHash, patchTx}]}
+         */
+        getLocalTxnsPatches() {
+            return [...this._mapLocalTxns].map(([strTxHash, {tx, patchTx}]) => ({strTxHash, patchTx}));
+        }
+
+        /**
+         *
          * @return {Array}
          */
         getAllTxnHashes() {
@@ -172,21 +177,27 @@ module.exports = ({Constants, Transaction}) =>
         _dumpToDisk() {
             debug('Dumping to disk');
             const objToSave = {};
-            for (let [txHash, tx] of this._mapLocalTxns) {
+            for (let [txHash, {tx}] of this._mapLocalTxns) {
                 objToSave[txHash] = tx.encode().toString('hex');
             }
 
             fs.writeFileSync(this._fileName, JSON.stringify(objToSave, undefined, 2));
         }
 
-        _loadFromDisk() {
+        loadLocalTxnsFromDisk() {
             try {
                 const objTxns = JSON.parse(fs.readFileSync(this._fileName, 'utf8'));
                 for (let strHash of Object.keys(objTxns)) {
-                    this._mapLocalTxns.set(strHash, new Transaction(Buffer.from(objTxns[strHash], 'hex')));
+                    this.addLocalTx(new Transaction(Buffer.from(objTxns[strHash], 'hex')), undefined);
                 }
             } catch (e) {
                 if (!e.message.match(/ENOENT/)) logger.error(e);
             }
+        }
+
+        storeBadTxHash(strTxHash) {
+            typeforce(types.Str64, strTxHash);
+
+            this._setBadTxnsHash.add(strTxHash);
         }
     };
