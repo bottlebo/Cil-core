@@ -316,7 +316,10 @@ module.exports = ({Constants, Crypto, Coins}, {transactionProto, transactionPayl
 
         verifyCoinbase(blockFees) {
             assert(this.isCoinbase(), 'Not a coinbase TX!');
-            assert(this.amountOut() === blockFees, 'Bad amount in coinbase!');
+//            assert(this.amountOut() === blockFees, 'Bad amount in coinbase!');
+
+            // TODO: delete-uncomment in prod
+            assert(this.amountOut() <= blockFees, 'Bad amount in coinbase!');
         }
 
         isContractCreation() {
