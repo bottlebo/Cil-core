@@ -73,14 +73,14 @@ module.exports = (factory, factoryOptions) => {
                         );
 
                         await Promise.all(
-                            tx.outputs.map(async out => {
+                            tx.outputs.map(async (out, index) => {
                                 const request = new sql.Request(this.pool);
                                 const receiverAddr = out.receiverAddr ? out.receiverAddr.toString('hex') : '';
                                 const addrChangeReceiver = out.addrChangeReceiver ? out.addrChangeReceiver.toString(
-                                    'hex') : null;
-                                const contractCode = out.contractCode ? 'contract' : null;
+                                    'hex') : '';
+                                const contractCode = out.contractCode ? 'contract' : '';
                                 await request.query(
-                                    `INSERT INTO Outputs (TransactionHash, ReceiverAddr, AddrChangeReceiver, Amount, ContractCode ) VALUES ('${tx.getHash()}', '${receiverAddr}', '${addrChangeReceiver}', ${out.amount}, '${contractCode}')`)
+                                    `INSERT INTO Outputs (TransactionHash, ReceiverAddr, AddrChangeReceiver, Amount, ContractCode, NTx ) VALUES ('${tx.getHash()}', '${receiverAddr}', '${addrChangeReceiver}', ${out.amount}, '${contractCode}', ${index})`)
                                     .catch(err => console.log(err));
                             })
                         );
