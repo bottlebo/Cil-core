@@ -607,8 +607,8 @@ module.exports = (factory, factoryOptions) => {
                     await peer.pushMessage(msg);
                 } catch (e) {
                     //                    logger.error(e.message);
-                    logger.error(e, `GetDataMessage. Peer ${peer.address}`);
-                    peer.misbehave(5);
+                    logger.error(`GetDataMessage. Peer ${peer.address}`, e);
+                    peer.misbehave(1);
 
                     // break loop
                     if (peer.isBanned()) return;
@@ -792,7 +792,7 @@ module.exports = (factory, factoryOptions) => {
 
             // next stage: request unknown blocks or just GENESIS, if we are at very beginning
             let msg;
-            if (!this._mainDag.getBlockInfo(Constants.GENESIS_BLOCK)) {
+            if (Constants.GENESIS_BLOCK && !this._mainDag.getBlockInfo(Constants.GENESIS_BLOCK)) {
                 msg = this._createGetDataMsg([Constants.GENESIS_BLOCK]);
                 peer.markAsPossiblyAhead();
             } else {
@@ -1121,19 +1121,16 @@ module.exports = (factory, factoryOptions) => {
             const environment = {
                 contractTx: tx.hash(),
                 callerAddress: tx.getTxSignerAddress(),
+                value: tx.getContractSentAmount(),
 
                 // we fill it before invocation (from contract)
                 contractAddr: undefined,
                 balance: 0,
-                // TODO Fix it (when witness creates block this is unknown!)
-//                block: this._processedBlock ? {
-//                    hash: this._processedBlock.getHash(),
-//                    timestamp: this._processedBlock.timestamp
-//                } : {}
-                block: {
-                    hash: 'stub',
-                    timestamp: 'stub'
-                }
+                block: this._processedBlock ? {
+                    hash: this._processedBlock.getHash(),
+                    timestamp: this._processedBlock.timestamp,
+                    height: this._processedBlock.getHeight()
+                } : {}
             };
 
             // get max contract fee
@@ -1159,7 +1156,7 @@ module.exports = (factory, factoryOptions) => {
 
                 // prevent contract collision
                 if (await this._storage.getContract(Buffer.from(addr, 'hex'))) {
-                    throw new Errror('Contract already exists');
+                    throw new Error('Contract already exists');
                 }
 
                 ({receipt, contract} =
@@ -1501,7 +1498,7 @@ module.exports = (factory, factoryOptions) => {
         }
 
         /**
-         * Ok, if all block signatures (number og it equals to concilium quorum) matches delegates pubKeys
+         * Ok, if all block signatures (it's number equals to concilium quorum) matches pubKeys
          *
          * @param {Blob} block
          * @returns {Promise<void>}
@@ -1512,17 +1509,20 @@ module.exports = (factory, factoryOptions) => {
 
             const witnessConciliumDefinition = await this._storage.getConciliumById(block.conciliumId);
             assert(witnessConciliumDefinition, `Unknown conciliumId: ${block.conciliumId}`);
-            const arrPubKeys = witnessConciliumDefinition.getDelegatesPublicKeys();
-            assert(
-                block.signatures.length === witnessConciliumDefinition.getQuorum(),
-                `Expected ${witnessConciliumDefinition.getQuorum()} signatures, got ${block.signatures.length}`
-            );
+            const arrStrAddresses = witnessConciliumDefinition.getAddresses(false);
+            let gatheredWeight = 0;
+
             for (let sig of block.signatures) {
-                const buffPubKey = Buffer.from(Crypto.recoverPubKey(buffBlockHash, sig), 'hex');
+                const strAddress = Crypto.getAddress(Crypto.recoverPubKey(buffBlockHash, sig));
                 assert(
-                    ~arrPubKeys.findIndex(key => buffPubKey.equals(key)),
+                    ~arrStrAddresses.findIndex(addr => strAddress === addr),
                     `Bad signature for block ${block.hash()}!`
                 );
+                gatheredWeight += witnessConciliumDefinition.getWitnessWeight(strAddress);
+            }
+
+            if (gatheredWeight < witnessConciliumDefinition.getQuorum()) {
+                throw new Error('Not enough signatures for block!');
             }
         }
 
@@ -1938,6 +1938,7 @@ module.exports = (factory, factoryOptions) => {
             debugBlock(`Executing block "${block.getHash()}"`);
 
             const lock = await this._mutex.acquire(['blockExec']);
+            this._processedBlock = block;
             try {
                 const patchState = await this._execBlock(block);
                 if (patchState) {
@@ -1951,6 +1952,7 @@ module.exports = (factory, factoryOptions) => {
                 peer.misbehave(10);
             } finally {
                 this._mutex.release(lock);
+                this._processedBlock = undefined;
             }
         }
 
@@ -2137,9 +2139,9 @@ module.exports = (factory, factoryOptions) => {
          * @private
          */
         _checkHeight(block) {
-            const calculatedHash = this._calcHeight(block.parentHashes);
-            assert(calculatedHash === block.getHeight(),
-                `Block ${block.getHash()} has incorrect height ${calculatedHash} (expected ${block.getHash()}`
+            const calculatedHeight = this._calcHeight(block.parentHashes);
+            assert(calculatedHeight === block.getHeight(),
+                `Block ${block.getHash()} has incorrect height ${calculatedHeight} (expected ${block.getHash()}`
             );
         }
     };
