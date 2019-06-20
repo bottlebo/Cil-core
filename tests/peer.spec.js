@@ -24,7 +24,7 @@ describe('Peer tests', () => {
         peerInfo = new factory.Messages.PeerInfo({
             capabilities: [
                 {service: factory.Constants.NODE, data: null},
-                {service: factory.Constants.WITNESS, data: Buffer.from(keyPair.getPublic(false), 'hex')}
+                {service: factory.Constants.WITNESS, data: Buffer.from(keyPair.address, 'hex')}
             ],
             address: factory.Transport.strToAddress(address),
             port: 12345
@@ -136,18 +136,18 @@ describe('Peer tests', () => {
         assert.isOk(newPeer.isBanned());
     });
 
-    it('should get peer public key', async () => {
+    it('should get peer witnessAddress', async () => {
         const newPeer = new factory.Peer({
             peerInfo: {
                 capabilities: [
-                    {service: factory.Constants.WITNESS, data: Buffer.from('1111')}
+                    {service: factory.Constants.WITNESS, data: Buffer.from('1111', 'hex')}
                 ],
                 address: {addr0: 0x2001, addr1: 0xdb8, addr2: 0x1234, addr3: 0x5}
             }
         });
         assert.isOk(newPeer);
-        assert.isOk(newPeer.publicKey);
-        assert.equal(newPeer.publicKey, '1111');
+        assert.isOk(newPeer.witnessAddress);
+        assert.equal(newPeer.witnessAddress, '1111');
     });
 
     it('should emit empty "witnessMessage" (wrong signature)', async () => {

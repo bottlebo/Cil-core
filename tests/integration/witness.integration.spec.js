@@ -5,7 +5,7 @@ const debugLib = require('debug');
 const sinon = require('sinon');
 
 const factory = require('../testFactory');
-const {pseudoRandomBuffer, createDummyTx, processBlock} = require('../testUtil');
+const {generateAddress, createDummyTx, processBlock} = require('../testUtil');
 const {sleep} = require('../../utils');
 
 process.on('warning', e => console.warn(e.stack));
@@ -22,19 +22,19 @@ let arrKeyPairs;
 let concilium;
 
 const patchNodeForWitnesses = (node, concilium) => {
-    node._storage.getConciliumsByKey = sinon.fake.returns([concilium]);
+    node._storage.getConciliumsByAddress = sinon.fake.returns([concilium]);
     node._storage.getConciliumById = sinon.fake.returns(concilium);
 };
 
 const createDummyDefinition = (conciliumId = 0, numOfKeys = 2) => {
     const arrKeyPairs = [];
-    const arrPublicKeys = [];
+    const arrAddresses = [];
     for (let i = 0; i < numOfKeys; i++) {
         const keyPair = factory.Crypto.createKeyPair();
         arrKeyPairs.push(keyPair);
-        arrPublicKeys.push(keyPair.publicKey);
+        arrAddresses.push(keyPair.address);
     }
-    const concilium = factory.ConciliumDefinition.create(conciliumId, arrPublicKeys);
+    const concilium = factory.ConciliumRr.create(conciliumId, arrAddresses);
 
     return {arrKeyPairs, concilium};
 };
@@ -44,6 +44,8 @@ const createWitnesses = (num, seedAddress) => {
     const arrWitnesses = [];
 
     for (let i = 0; i < num; i++) {
+
+        // we use arrKeyPairs that filled in beforeEach -> createDummyDefinition
         const witnessWallet = new factory.Wallet(arrKeyPairs[i].getPrivate());
         const witness = new factory.Witness({
             wallet: witnessWallet,
@@ -63,7 +65,7 @@ const createGenesisBlock = () => {
     const tx = new factory.Transaction(createDummyTx());
     const block = new factory.Block(0);
     block.addTx(tx);
-    block.finish(0, pseudoRandomBuffer(33));
+    block.finish(0, generateAddress());
     factory.Constants.GENESIS_BLOCK = block.hash();
 
     return block;
@@ -71,7 +73,7 @@ const createGenesisBlock = () => {
 
 const createGenesisBlockAndSpendingTx = (conciliumId = 0) => {
     const receiverKeyPair = factory.Crypto.createKeyPair();
-    const buffReceiverAddress = factory.Crypto.getAddress(receiverKeyPair.publicKey, true);
+    const buffReceiverAddress = Buffer.from(receiverKeyPair.address, 'hex');
 
     // create "genesis" tx
     const txGen = new factory.Transaction();
@@ -83,7 +85,7 @@ const createGenesisBlockAndSpendingTx = (conciliumId = 0) => {
     const genesis = new factory.Block(0);
     genesis.addTx(txGen);
     genesis.setHeight(1);
-    genesis.finish(0, pseudoRandomBuffer(33));
+    genesis.finish(0, generateAddress());
     factory.Constants.GENESIS_BLOCK = genesis.getHash();
 
     // create spending tx

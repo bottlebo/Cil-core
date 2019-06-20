@@ -347,7 +347,7 @@ describe('Storage tests', () => {
         assert.isOk(Buffer.isBuffer(await storage.getTxReceipt(buffUtxoHash, true)));
 
         const block = new factory.Block(0);
-        block.finish(1e5, pseudoRandomBuffer(33));
+        block.finish(1e5, generateAddress());
         const blockInfo = new factory.BlockInfo(block.header);
 
         await storage.saveBlock(block, blockInfo);
@@ -392,13 +392,13 @@ describe('Storage tests', () => {
         const contractAddress = generateAddress();
         factory.Constants.CONCILIUM_DEFINITION_CONTRACT_ADDRESS = contractAddress;
 
-        const def1 = factory.ConciliumDefinition.create(
+        const def1 = factory.ConciliumRr.create(
             0,
-            [Buffer.from('public1'), Buffer.from('public2')]
+            [Buffer.from('addr1'), Buffer.from('addr2')]
         );
-        const def2 = factory.ConciliumDefinition.create(
+        const def2 = factory.ConciliumRr.create(
             1,
-            [Buffer.from('public2'), Buffer.from('public3')]
+            [Buffer.from('addr2'), Buffer.from('addr3')]
         );
 
         const patch = new factory.PatchDB();
@@ -421,13 +421,13 @@ describe('Storage tests', () => {
         storage.applyPatch(patch);
 
         {
-            const arrDefs = await storage.getConciliumsByKey(Buffer.from('public1'));
+            const arrDefs = await storage.getConciliumsByAddress(Buffer.from('addr1'));
             assert.isOk(Array.isArray(arrDefs));
             assert.equal(arrDefs.length, 1);
         }
 
         {
-            const arrDefs = await storage.getConciliumsByKey(Buffer.from('public2'));
+            const arrDefs = await storage.getConciliumsByAddress(Buffer.from('addr2'));
             assert.isOk(Array.isArray(arrDefs));
             assert.equal(arrDefs.length, 2);
         }

@@ -187,7 +187,7 @@ describe('Contract integration tests', () => {
         const block = new factory.Block(0);
         block.addTx(tx1);
         block.addTx(tx2);
-        block.finish(0, pseudoRandomBuffer(33));
+        block.finish(0, generateAddress());
 
         node.isGenesisBlock = () => true;
         node._pendingBlocks.mergePatches = () => new factory.PatchDB();
@@ -198,6 +198,7 @@ describe('Contract integration tests', () => {
         }, strContractAddr);
 
         const patchState = await node._execBlock(block);
+
         assert.isOk(patchState);
         const patchContract = patchState.getContract(strContractAddr);
         assert.isOk(patchContract);
@@ -269,7 +270,7 @@ describe('Contract integration tests', () => {
         const block = new factory.Block(0);
         block.addTx(tx1);
         block.addTx(tx2);
-        block.finish(0, pseudoRandomBuffer(33));
+        block.finish(0, generateAddress());
 
         node.isGenesisBlock = () => true;
         node._pendingBlocks.mergePatches = () => new factory.PatchDB();
@@ -279,6 +280,7 @@ describe('Contract integration tests', () => {
         }, strContractAddr);
 
         const patchState = await node._execBlock(block);
+
         assert.isOk(patchState);
         const contractPatch = patchState.getContract(strContractAddr);
         assert.isOk(contractPatch);
@@ -297,13 +299,17 @@ describe('Contract integration tests', () => {
             class TestContract extends Base{
                 constructor(answer) {
                     super();
-                    this._ownerAddress = callerAddress;
                     this._contractAddr = contractAddr;
                     this._someData=answer;
                 }
                 
-                testVariables() {
-                    this._testResult= this._ownerAddress === callerAddress && this._contractAddr === contractAddr;
+                testVariables(blockHash, blockHeight, blockTimestamp) {
+                    this._testResult= this._ownerAddress === callerAddress && 
+                    this._contractAddr === contractAddr &&
+                    value === ${nCoinsSentToContract} &&
+                    block.hash &&
+                    block.height === blockHeight,
+                    block.timestamp===blockTimestamp;
                 }
             };
 
@@ -311,6 +317,13 @@ describe('Contract integration tests', () => {
             `;
         const tx = factory.Transaction.createContract(contractCode, generateAddress());
         tx.signForContract(kp.privateKey);
+
+        const fakeBlock = {
+            getHeight: () => 11,
+            timestamp: Date.now(),
+            getHash: () => pseudoRandomBuffer().toString('hex')
+        };
+        node._processedBlock = fakeBlock;
 
         // deploy contract and check success
         await node._processContract(false, undefined, tx, patchTx, new factory.PatchDB(), nCoinsIn);
@@ -344,7 +357,10 @@ describe('Contract integration tests', () => {
         const contractDataSize = contract.getDataSize();
 
         // call for it
-        const objCodeToRun = createObjInvocationCode('testVariables', []);
+        const objCodeToRun = createObjInvocationCode(
+            'testVariables',
+            [fakeBlock.getHash(), fakeBlock.getHeight(), fakeBlock.timestamp]
+        );
         const txRun = factory.Transaction.invokeContract(
             contract.getStoredAddress(),
             objCodeToRun,
@@ -354,6 +370,7 @@ describe('Contract integration tests', () => {
         txRun.signForContract(kp.privateKey);
 
         const patchRun = new factory.PatchDB();
+        node._processedBlock = fakeBlock;
 
         await node._processContract(false, contract, txRun, patchRun, new factory.PatchDB(), nCoinsIn);
         {
@@ -641,10 +658,10 @@ describe('Contract integration tests', () => {
                 contractData: {_receivers: {[generateAddress().toString('hex')]: 1}},
                 contractCode: JSON.stringify((objCode))
             }, strContractCallerAddr);
+
             const objCode2 = {
                 "testAnother": `<(strAddress){this._receivers['test']=1;}`
             };
-
             const strContractSenderAddr = generateAddress().toString('hex');
             const contract2 = new factory.Contract({
                 contractData: {_callCount: 100},
