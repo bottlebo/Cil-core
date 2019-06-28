@@ -34,7 +34,7 @@ const eraseDbContent = async (db) => {
         db.createKeyStream({keyAsBuffer: true, valueAsBuffer: false})
             .on('data', function(data) {
                 arrBuffers.push({type: 'del', key: data});
-//                db.del(data, {keyAsBuffer: true, valueAsBuffer: false});
+                //                db.del(data, {keyAsBuffer: true, valueAsBuffer: false});
             })
             .on('close', function() {
                 resolve();
@@ -46,7 +46,7 @@ const eraseDbContent = async (db) => {
 module.exports = (factory, factoryOptions) => {
     const {
         Constants, Block, BlockInfo, UTXO, ArrayOfHashes, ArrayOfAddresses, Contract,
-        TxReceipt, BaseConciliumDefinition, ConciliumRr, ConciliumPos, Peer, PatchDB
+        TxReceipt, BaseConciliumDefinition, ConciliumRr, ConciliumPos, Peer, PatchDB, Api
     } = factory;
 
     return class Storage {
@@ -91,8 +91,9 @@ module.exports = (factory, factoryOptions) => {
             }
 
             this._mutex = mutex;
-            if (options.sqlConfig) {
-                this._sqlStorage = new SqlStorage({...options});
+            
+            if (options.apiConfig) {
+                this._api = new Api({...options});
             }
         }
 
@@ -101,7 +102,7 @@ module.exports = (factory, factoryOptions) => {
          * @return {Promise<void>|*}
          */
         ready() {
-            if (this._sqlStorage) return this._sqlStorage.connPromise;
+            //if (this._sqlStorage) return this._sqlStorage.connPromise;
             return Promise.resolve();
         }
 
@@ -205,11 +206,12 @@ module.exports = (factory, factoryOptions) => {
                 throw new Error(`Storage: Block ${buffHash.toString('hex')} already saved!`);
             }
             await this._blockStorage.put(key, block.encode());
-            if (this._sqlStorage) {
-                await this._sqlStorage.saveBlock(block);
-            }
+           
             // save blockInfo
             if (!blockInfo) blockInfo = new BlockInfo(block.header);
+            if (this._api) {
+                await this._api.saveBlock(block, blockInfo)
+            }
             await this.saveBlockInfo(blockInfo);
 
             if (this._buildTxIndex) {
@@ -247,10 +249,10 @@ module.exports = (factory, factoryOptions) => {
             const bufHash = Buffer.isBuffer(blockHash) ? blockHash : Buffer.from(blockHash, 'hex');
             const key = this.constructor.createKey('', bufHash);
             await this._blockStorage.del(key);
-            if (this._sqlStorage) {
-                await this._sqlStorage.removeBlock(blockHash);
+           
+            if (this._api) {
+                await this._api.removeBlock(blockHash);
             }
-
         }
 
         /**
@@ -302,6 +304,9 @@ module.exports = (factory, factoryOptions) => {
 
             const blockInfoKey = this.constructor.createKey(BLOCK_INFO_PREFIX, Buffer.from(blockInfo.getHash(), 'hex'));
             await this._db.put(blockInfoKey, blockInfo.encode());
+            if (this._api) {
+                await this._api.setBlockState(blockInfo.getHash(), blockInfo.getState())
+            }
         }
 
         /**
@@ -404,11 +409,11 @@ module.exports = (factory, factoryOptions) => {
 
                     if (this._walletSupport) await this._walletUtxoCheck(utxo);
                 }
-                if (this._sqlStorage) {
+                if (this._api) {
                     if (arrUtxos.length)
-                        await this._sqlStorage.saveUtxos(arrUtxos);
+                        await this._api.saveUtxos(arrUtxos);
                     if (arrDelUtxo.length)
-                        await this._sqlStorage.deleteUtxos(arrDelUtxo);
+                        await this._api.deleteUtxos(arrDelUtxo);
                 }
                 // save contracts
                 for (let [strContractAddr, contract] of statePatch.getContracts()) {
@@ -756,21 +761,21 @@ module.exports = (factory, factoryOptions) => {
 
             const arrRecords = [];
             await new Promise(resolve => {
-                    this._db
-                        .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
-                        .on('data', async data => {
+                this._db
+                    .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
+                    .on('data', async data => {
 
-                            // get hash from key (slice PREFIX)
-                            const hash = data.key.slice(1);
-                            const utxo = new UTXO({txHash: hash, data: data.value});
-                            for (let strAddr of this._arrStrWalletAddresses) {
-                                const arrIndexes = utxo.getOutputsForAddress(strAddr);
-//                                if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
-                                if (arrIndexes.length) arrRecords.push({strAddr, hash});
-                            }
-                        })
-                        .on('close', () => resolve());
-                }
+                        // get hash from key (slice PREFIX)
+                        const hash = data.key.slice(1);
+                        const utxo = new UTXO({txHash: hash, data: data.value});
+                        for (let strAddr of this._arrStrWalletAddresses) {
+                            const arrIndexes = utxo.getOutputsForAddress(strAddr);
+                            //                                if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
+                            if (arrIndexes.length) arrRecords.push({strAddr, hash});
+                        }
+                    })
+                    .on('close', () => resolve());
+            }
             );
             for (const {strAddr, hash} of arrRecords) {
                 await this._walletWriteAddressUtxo(strAddr, hash);

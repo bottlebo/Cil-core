@@ -48,7 +48,7 @@ const RpcWrapper = require('./node/rpc');
 const AppWrapper = require('./node/app');
 
 const StorageWrapper = require('./storage/persistentStorage');
-const SqlStorageWrapper = require('./storage/sqlStorage');
+const ApiWrapper = require('./api/api')
 
 const PatchWrapper = require('./storage/patch');
 const PendingBlocksManagerWrapper = require('./node/pendingBlocksManager');
@@ -115,7 +115,8 @@ class Factory {
                 this._peerImplementation = PeerWrapper(this);
                 this._peerManagerImplemetation = PeerManagerWrapper(this);
                 this._patchImplementation = PatchWrapper(this);
-                this._sqlStorageImplementation = SqlStorageWrapper(this);
+                this._apiImplementation = ApiWrapper(this);
+
 
                 this._storageImplementation = StorageWrapper(this);
                 this._bftImplementation = BftWrapper(this);
@@ -264,10 +265,9 @@ class Factory {
         return this._storageImplementation;
     }
 
-    get SqlStorage() {
-        return this._sqlStorageImplementation;
+    get Api() {
+        return this._apiImplementation;
     }
-    
     get PendingBlocksManager() {
         return this._pendingBlocksManagerImplementation;
     }

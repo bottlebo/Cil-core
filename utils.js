@@ -127,6 +127,8 @@ module.exports = {
             {name: "reIndexWallet", type: Boolean, multiple: false},
             {name: "walletSupport", type: Boolean, multiple: false},
             {name: "sqlConfig", type: String, multiple: false},
+            {name: "apiConfig", type: String, multiple: false},
+
             {name: "listWallets", type: Boolean, multiple: false}
         ];
         return commandLineArgs(optionDefinitions, {camelCase: true});
