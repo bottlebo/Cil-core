@@ -76,7 +76,7 @@ module.exports = (factory, factoryOptions) => {
         });
     }
     async deleteUtxos(arrHash) {
-      await axios.delete(`Utxo`, arrHash)
+      await axios.delete(`Utxo`, {data:arrHash})
         .catch(error => {
           console.log(error);
         });
