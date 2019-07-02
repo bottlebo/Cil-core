@@ -208,8 +208,7 @@ module.exports = {
             {name: "listWallets", type: Boolean, multiple: false},
             {name: "localDevNode", type: Boolean, multiple: false},
             {name: "rebuildDb", type: Boolean, multiple: false},
-            {name: "sqlConfig", type: String, multiple: false},
-            {name: "listWallets", type: Boolean, multiple: false}
+            {name: "sqlConfig", type: String, multiple: false}
         ];
         return commandLineArgs(optionDefinitions, {camelCase: true});
     },
