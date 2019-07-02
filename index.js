@@ -1,6 +1,13 @@
 const factory = require('./factory');
 
-const {readCmdLineOptions, sleep, stripAddressPrefix, readPrivateKeyFromFile} = require('./utils');
+const {
+    readCmdLineOptions,
+    sleep,
+    stripAddressPrefix,
+    readPrivateKeyFromFile,
+    mapEnvToOptions,
+    mapOptionsToNodeParameters
+} = require('./utils');
 
 process.on('warning', e => console.warn(e.stack));
 
@@ -9,32 +16,35 @@ process.on('warning', e => console.warn(e.stack));
 
     console.log(`Using ${factory.Constants.strIdent} config`);
 
-    // read command line options
-    const objCmdLineParams = readCmdLineOptions();
+    // Read user-defined parameters
+    const objUserParams = {
+        // read ENV options
+        ...mapEnvToOptions(),
 
-    // wallets tasks will exit after completion!
-    await walletTasks(objCmdLineParams);
+        // read command line options (have precedence over ENV)
+        ...readCmdLineOptions()
+    };
 
-    if (objCmdLineParams.genesisHash) factory.Constants.GENESIS_BLOCK = objCmdLineParams.genesisHash;
-    if (objCmdLineParams.conciliumDefContract) {
-        factory.Constants.CONCILIUM_DEFINITION_CONTRACT_ADDRESS = objCmdLineParams.conciliumDefContract;
+    // override global parameters
+    if (objUserParams.genesisHash) factory.Constants.GENESIS_BLOCK = objUserParams.genesisHash;
+    if (objUserParams.conciliumDefContract) {
+        factory.Constants.CONCILIUM_DEFINITION_CONTRACT_ADDRESS = objUserParams.conciliumDefContract;
     }
 
-    const commonOptions = {
+    // if there are wallet tasks - program will terminate after completion!
+    await walletTasks(objUserParams);
 
-        // if command line parameter have same name as option name, like "rpcUser"
-        ...objCmdLineParams,
+    // if there is rebuild task - program will terminate after completion!
+    await rebuildDb(objUserParams);
 
-        // non matching names
-        buildTxIndex: objCmdLineParams.txIndex,
-        listenPort: objCmdLineParams.port,
-        arrSeedAddresses: objCmdLineParams.seedAddr ? [objCmdLineParams.seedAddr] : [],
-        isSeed: objCmdLineParams.seed
+    let commonOptions = {
+        ...setImpliedParameters(objUserParams),
+        ...mapOptionsToNodeParameters(objUserParams)
     };
 
     let node;
-    if (objCmdLineParams.privateKey) {
-        const decryptedPk = await readPrivateKeyFromFile(factory.Crypto, objCmdLineParams.privateKey);
+    if (objUserParams.privateKey) {
+        const decryptedPk = await readPrivateKeyFromFile(factory.Crypto, objUserParams.privateKey);
         if (!decryptedPk) throw new Error('failed to decrypt file with private key');
         const witnessWallet = new factory.Wallet(decryptedPk);
         node = new factory.Witness({
@@ -65,6 +75,24 @@ process.on('warning', e => console.warn(e.stack));
     .catch(err => {
         console.error(err);
     });
+
+async function rebuildDb(objCmdLineParams) {
+    const {rebuildDb} = objCmdLineParams;
+    if (!rebuildDb) return;
+
+    try {
+        const storage = new factory.Storage({...objCmdLineParams, mutex: new factory.Mutex()});
+        await storage.dropAllForReIndex();
+
+        const node = new factory.Node({...objCmdLineParams, workerSuspended: true, networkSuspended: true});
+        await node.ensureLoaded();
+        await node.rebuildDb();
+        process.exit(0);
+    } catch (e) {
+        console.error(e);
+        process.exit(1);
+    }
+}
 
 async function walletTasks(objCmdLineParams) {
     const {listWallets, reIndexWallet, watchAddress} = objCmdLineParams;
@@ -109,3 +137,29 @@ async function walletTasks(objCmdLineParams) {
     }
 }
 
+/**
+ * Let user skip some parameters.
+ * I.e. if he set rpcUser, we think he wants RPC, but RPC will be started only if rpcAddress present. So let's set it
+ *
+ * @param {Object} objUserParams
+ */
+function setImpliedParameters(objUserParams) {
+    let objAddOn = {};
+    if (objUserParams.localDevNode) {
+        objAddOn = {
+            ...objAddOn,
+            arrDnsSeeds: ['non-existed.cil'],
+            listenPort: 28223,
+            arrSeedAddresses: ['1.1.1.1']
+        };
+    }
+
+    if (objUserParams.rpcUser) {
+        objAddOn = {
+            ...objAddOn,
+            rpcAddress: '0.0.0.0'
+        };
+    }
+
+    return objAddOn;
+}

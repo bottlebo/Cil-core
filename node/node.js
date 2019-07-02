@@ -63,10 +63,13 @@ module.exports = (factory, factoryOptions) => {
                 ...options
             };
 
-            const {arrSeedAddresses, arrDnsSeeds, nMaxPeers, queryTimeout, workerSuspended} = options;
+            const {arrSeedAddresses, arrDnsSeeds, nMaxPeers, queryTimeout, workerSuspended, networkSuspended} = options;
+
+            this._workerSuspended = workerSuspended;
+            this._networkSuspended = networkSuspended;
+            this._msecOffset = 0;
 
             this._mutex = new Mutex();
-
             this._storage = new Storage({...options, mutex: this._mutex});
 
             // nonce for MsgVersion to detect connection to self (use crypto.randomBytes + readIn32LE) ?
@@ -74,14 +77,11 @@ module.exports = (factory, factoryOptions) => {
 
             this._arrSeedAddresses = arrSeedAddresses || [];
             this._arrDnsSeeds = arrDnsSeeds || Constants.DNS_SEED;
-            this._workerSuspended = workerSuspended;
+
             this._queryTimeout = queryTimeout || Constants.PEER_QUERY_TIMEOUT;
 
             // create mempool
             this._mempool = new Mempool(options);
-
-            this._transport = new Transport(options);
-            this._transport.on('connect', this._incomingConnection.bind(this));
 
             this._mapBlocksToExec = new Map();
             this._mapUnknownBlocks = new Map();
@@ -89,15 +89,16 @@ module.exports = (factory, factoryOptions) => {
             this._app = new Application(options);
 
             this._rebuildPromise = this._rebuildBlockDb();
-            this._listenPromise = this._initNetwork(options);
-
-            this._msecOffset = 0;
-
-            this._reconnectTimer = new Tick(this);
-            this._requestCache = new RequestCache();
+            this._listenPromise = networkSuspended ? Promise.resolve() : this._initNetwork(options);
         }
 
         _initNetwork(options) {
+            this._transport = new Transport(options);
+            this._transport.on('connect', this._incomingConnection.bind(this));
+
+            this._reconnectTimer = new Tick(this);
+            this._requestCache = new RequestCache();
+
             return new Promise(async resolve => {
 
                 // we'll init network after all local tasks are done
@@ -399,6 +400,9 @@ module.exports = (factory, factoryOptions) => {
         async _handleArrivedBlock(block, peer) {
             const lock = await this._mutex.acquire([`blockReceived`]);
             try {
+
+                // TODO: verify rihgt before exec. BC if it's block for new concilium,
+                //  we could have concilium definition in pending blocks also!
                 await this._verifyBlock(block);
 
                 // store it in DAG & disk
@@ -926,15 +930,15 @@ module.exports = (factory, factoryOptions) => {
             assert(!this._mempool.isBadTx(strNewTxHash), 'Tx already marked as bad');
             assert(!this._mempool.hasTx(strNewTxHash), 'Tx already in mempool');
 
-            const patchNewTx = await this._processReceivedTx(newTx, false);
+            const patchNewTx = await this._processReceivedTx(newTx, false, false);
 
             // let's check for patch conflicts with other local txns
 
             try {
                 for (let {strTxHash, patchTx} of this._mempool.getLocalTxnsPatches()) {
-                    if (!patchTx) {
 
-                        // mempool just loaded, we need to exec all stored local txns
+                    // mempool just loaded, we need to exec all stored local txns
+                    if (!patchTx) {
                         const localTx = this._mempool.getTx(strTxHash);
 
                         // exec it. no need to validate. local txns were already validated
@@ -957,10 +961,12 @@ module.exports = (factory, factoryOptions) => {
         /**
          *
          * @param {Transaction} tx
+         * @param {Boolean} bStoreInMempool - should we store it in mempool (false - only for received from RPC txns)
+         * @param {Boolean} bInformNeighbours - should we store broadcast it (false - only for received from RPC txns)
          * @returns {Promise<PatchDB>}
          * @private
          */
-        async _processReceivedTx(tx, bStoreInMempool = true) {
+        async _processReceivedTx(tx, bStoreInMempool = true, bInformNeighbours = true) {
             typeforce(types.Transaction, tx);
 
             const strTxHash = tx.getHash();
@@ -981,7 +987,7 @@ module.exports = (factory, factoryOptions) => {
                 throw e;
             }
 
-            await this._informNeighbors(tx);
+            if (bInformNeighbours) await this._informNeighbors(tx);
 
             return patchThisTx;
         }
@@ -999,7 +1005,7 @@ module.exports = (factory, factoryOptions) => {
             let patchThisTx = new PatchDB(tx.conciliumId);
             let totalHas = amountHas === undefined ? 0 : amountHas;
             let fee = 0;
-            let nFeeTx;
+            let nFeeSize;
 
             const lock = await this._mutex.acquire(['transaction']);
             try {
@@ -1012,11 +1018,13 @@ module.exports = (factory, factoryOptions) => {
                     ({totalHas, patch: patchThisTx} = this._app.processTxInputs(tx, patchMerged));
                 }
 
-                // calculate TX size fee
-                nFeeTx = await this._calculateSizeFee(tx);
-                const nRemainingCoins = totalHas - nFeeTx;
+                let nRemainingCoins = totalHas;
                 if (!isGenesis) {
-                    assert(nRemainingCoins > 0, `Require fee at least ${nFeeTx} but you sent only ${totalHas}`);
+
+                    // calculate TX size fee
+                    nFeeSize = await this._calculateSizeFee(tx, isGenesis);
+                    nRemainingCoins = totalHas - nFeeSize;
+                    assert(nRemainingCoins > 0, `Require fee at least ${nFeeSize} but you sent less than fee!`);
                 }
 
                 let totalSent = 0;
@@ -1025,12 +1033,17 @@ module.exports = (factory, factoryOptions) => {
                 // TODO: move it to per output processing. So we could use multiple contract invocation in one TX
                 //  it's useful for mass payments, where some of addresses could be contracts!
                 if (tx.isContractCreation() ||
-                    (contract = await this._getContractByAddr(tx.getContractAddr(), patchForBlock))
-                ) {
+                    (contract = await this._getContractByAddr(tx.getContractAddr(), patchForBlock))) {
 
                     // process contract creation/invocation
-                    fee = await this._processContract(isGenesis, contract, tx, patchThisTx, patchForBlock,
-                        nRemainingCoins, nFeeTx
+                    fee = await this._processContract(
+                        isGenesis,
+                        contract,
+                        tx,
+                        patchThisTx,
+                        patchForBlock,
+                        nRemainingCoins,
+                        nFeeSize
                     );
                     const receipt = patchThisTx.getReceipt(tx.getHash());
                     if (!receipt || !receipt.isSuccessful()) {
@@ -1042,17 +1055,14 @@ module.exports = (factory, factoryOptions) => {
                     totalSent = this._app.processPayments(tx, patchThisTx);
                     if (!isGenesis) {
                         fee = totalHas - totalSent;
-                        if (fee < 0 || fee < nFeeTx) {
-                            throw new Error(`Tx ${tx.hash()} fee ${fee} too small! Expected ${nFeeTx}`);
+                        if (fee < 0 || fee < nFeeSize) {
+                            throw new Error(`Tx ${tx.hash()} fee ${fee} too small! Expected ${nFeeSize}`);
                         }
                     }
                 }
             } finally {
                 this._mutex.release(lock);
             }
-
-            // add TX fee size
-            fee += nFeeTx;
 
             return {fee, patchThisTx};
         }
@@ -1077,23 +1087,41 @@ module.exports = (factory, factoryOptions) => {
             return parseInt(nFeePerKb * nKbytes);
         }
 
-        async _calculateSizeFee(tx) {
+        async _calculateSizeFee(tx, isGenesis = false) {
+            if (isGenesis) return 0;
+
             const witnessConcilium = await this._storage.getConciliumById(tx.conciliumId);
-            const nFeePerKb = witnessConcilium && witnessConcilium.getFeeTxSize() || Constants.fees.TX_FEE;
+            const nFeePerKb = witnessConcilium && witnessConcilium.getFeeTxSize() >= Constants.fees.TX_FEE
+                ? witnessConcilium.getFeeTxSize() : Constants.fees.TX_FEE;
             const nKbytes = tx.getSize() / 1024;
+
             return parseInt(nFeePerKb * nKbytes);
         }
 
-        async _getFeeContractCreation(tx) {
+        async _getFeeContractCreation(tx, isGenesis = false) {
+            if (isGenesis) return 0;
+
             const witnessConcilium = await this._storage.getConciliumById(tx.conciliumId);
-            return witnessConcilium && witnessConcilium.getContractCreationFee() ||
-                   Constants.fees.CONTRACT_CREATION_FEE;
+
+            return witnessConcilium && witnessConcilium.getFeeContractCreation() >= Constants.fees.CONTRACT_CREATION_FEE
+                ? witnessConcilium.getFeeContractCreation() : Constants.fees.CONTRACT_CREATION_FEE;
         }
 
-        async _getFeeContractInvocatoin(tx) {
+        async _getFeeContractInvocatoin(tx, isGenesis = false) {
+            if (isGenesis) return 0;
+
             const witnessConcilium = await this._storage.getConciliumById(tx.conciliumId);
-            return witnessConcilium && witnessConcilium.getContractInvocationFee() ||
-                   Constants.fees.CONTRACT_INVOCATION_FEE;
+            return witnessConcilium &&
+                   witnessConcilium.getFeeContractInvocation() >= Constants.fees.CONTRACT_INVOCATION_FEE
+                ? witnessConcilium.getFeeContractInvocation() : Constants.fees.CONTRACT_INVOCATION_FEE;
+        }
+
+        async _getFeeStorage(tx, isGenesis = false) {
+            if (isGenesis) return 0;
+
+            const witnessConcilium = await this._storage.getConciliumById(tx.conciliumId);
+            return witnessConcilium && witnessConcilium.getFeeStorage() >= Constants.fees.STORAGE_PER_BYTE_FEE
+                ? witnessConcilium.getFeeStorage() : Constants.fees.STORAGE_PER_BYTE_FEE;
         }
 
         /**
@@ -1106,11 +1134,14 @@ module.exports = (factory, factoryOptions) => {
          * @param {PatchDB} patchThisTx
          * @param {PatchDB} patchForBlock - used for nested contracts
          * @param {Number} nCoinsIn - sum of all inputs coins
+         * @param {Number} nFeeSize - fee for TX size (for nested contracts ==0)
          * @returns {Promise<number>}
          * @private
          */
-        async _processContract(isGenesis, contract, tx, patchThisTx, patchForBlock, nCoinsIn) {
+        async _processContract(isGenesis, contract, tx, patchThisTx, patchForBlock, nCoinsIn, nFeeSize = 0) {
             let fee = 0;
+
+            const nFeeStorage = await this._getFeeStorage(tx, isGenesis);
 
             // contract creation/invocation has 2 types of change:
             // 1st - usual for UTXO just send exceeded coins to self
@@ -1144,7 +1175,7 @@ module.exports = (factory, factoryOptions) => {
 
             if (!contract) {
 
-                const nFeeContractCreation = await this._getFeeContractCreation(tx);
+                const nFeeContractCreation = await this._getFeeContractCreation(tx, isGenesis);
                 if (coinsLimit < nFeeContractCreation) {
                     throw new Error(
                         `Tx ${tx.hash()} fee ${coinsLimit} for contract creation less than ${nFeeContractCreation}!`);
@@ -1160,10 +1191,15 @@ module.exports = (factory, factoryOptions) => {
                 }
 
                 ({receipt, contract} =
-                    await this._app.createContract(coinsLimit, tx.getContractCode(), environment));
+                    await this._app.createContract(
+                        coinsLimit,
+                        tx.getContractCode(),
+                        environment,
+                        {nFeeContractCreation, nFeeSize, nFeeStorage}
+                    ));
             } else {
 
-                const nFeeContractInvocation = await this._getFeeContractInvocatoin(tx);
+                const nFeeContractInvocation = await this._getFeeContractInvocatoin(tx, isGenesis);
                 if (coinsLimit < nFeeContractInvocation) {
                     throw new Error(
                         `Tx ${tx.hash()} fee ${coinsLimit} for contract invocation less than ${nFeeContractInvocation}!`);
@@ -1186,7 +1222,12 @@ module.exports = (factory, factoryOptions) => {
                     contract,
                     environment,
                     undefined,
-                    this._createCallbacksForApp(patchForBlock, patchThisTx, tx.hash())
+                    this._createCallbacksForApp(patchForBlock, patchThisTx, tx.hash()),
+                    {
+                        nFeeContractInvocation,
+                        nFeeSize,
+                        nFeeStorage
+                    }
                 );
             }
             patchThisTx.setReceipt(tx.hash(), receipt);
@@ -1241,7 +1282,7 @@ module.exports = (factory, factoryOptions) => {
                 arguments
             );
 
-            const {method, arrArguments, context, coinsLimit, environment} = objParams;
+            const {method, arrArguments, context, coinsLimit, environment, objFees} = objParams;
             typeforce(
                 typeforce.tuple(typeforce.String, typeforce.Array, typeforce.Number),
                 [method, arrArguments, coinsLimit]
@@ -1260,7 +1301,8 @@ module.exports = (factory, factoryOptions) => {
                 contract,
                 newEnv,
                 context,
-                this._createCallbacksForApp(patchBlock, patchTx, strTxHash)
+                this._createCallbacksForApp(patchBlock, patchTx, strTxHash),
+                objFees
             );
 
             if (receipt.isSuccessful()) {
@@ -1363,7 +1405,7 @@ module.exports = (factory, factoryOptions) => {
          */
         _processBlockCoinbaseTX(block, blockFees, patchState) {
             const coinbase = new Transaction(block.txns[0]);
-            coinbase.verifyCoinbase(blockFees);
+            if (!this.isGenesisBlock(block)) coinbase.verifyCoinbase(blockFees);
             const coins = coinbase.getOutCoins();
             for (let i = 0; i < coins.length; i++) {
 
@@ -1389,8 +1431,6 @@ module.exports = (factory, factoryOptions) => {
 
             // store pending blocks (for restore state after node restart)
             await this._storage.updatePendingBlocks(this._pendingBlocks.getAllHashes());
-
-            this._informNeighbors(block);
         }
 
         async _processFinalityResults(result) {
@@ -1944,7 +1984,7 @@ module.exports = (factory, factoryOptions) => {
                 if (patchState) {
                     await this._acceptBlock(block, patchState);
                     await this._postAcceptBlock(block);
-                    await this._informNeighbors(block);
+                    if (!this._networkSuspended) this._informNeighbors(block);
                 }
             } catch (e) {
                 logger.error(`Failed to execute "${block.hash()}"`, e);
@@ -2113,6 +2153,7 @@ module.exports = (factory, factoryOptions) => {
                 newEnv,
                 undefined,
                 this._createCallbacksForApp(new PatchDB(), new PatchDB(), Crypto.randomBytes(32)),
+                {},
                 true
             );
         }
@@ -2141,8 +2182,37 @@ module.exports = (factory, factoryOptions) => {
         _checkHeight(block) {
             const calculatedHeight = this._calcHeight(block.parentHashes);
             assert(calculatedHeight === block.getHeight(),
-                `Block ${block.getHash()} has incorrect height ${calculatedHeight} (expected ${block.getHash()}`
+                `Incorrect height "${calculatedHeight}" were calculated for block ${block.getHash()} (expected ${block.getHeight()}`
             );
+        }
+
+        async cleanDb() {
+            await this._storage.dropAllForReIndex();
+        }
+
+        /**
+         * Rebuild chainstate from blockDb (reExecute them one more time)
+         *
+         * @returns {Promise<void>}
+         */
+        async rebuildDb() {
+            this._mainDag = new MainDag();
+
+            for await (let {value} of this._storage.readBlocks()) {
+                const block = new factory.Block(value);
+                this._mainDag.addBlock(new BlockInfo(block.header));
+            }
+
+            const genesis = this._mainDag.getBlockInfo(Constants.GENESIS_BLOCK);
+            assert(genesis, 'No Genesis found');
+            let arrBlockInfos = [genesis];
+            do {
+                this._mapBlocksToExec = new Map(arrBlockInfos.map(bi => [bi.getHash(), undefined]));
+                await this._blockProcessor();
+                let arrChilds = [];
+                arrBlockInfos.forEach(bi => arrChilds.concat(arrChilds, this._mainDag.getChildren(bi.getHash())));
+                arrBlockInfos = arrChilds;
+            } while (arrBlockInfos.length);
         }
     };
 };

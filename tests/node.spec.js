@@ -101,15 +101,19 @@ const createSimpleChain = async (callback) => {
 
 const createSimpleFork = async (callback) => {
     const genesis = createDummyBlock(factory);
+    genesis.setHeight(0);
     factory.Constants.GENESIS_BLOCK = genesis.getHash();
 
     const block1 = createDummyBlock(factory);
+    block1.setHeight(1);
     block1.parentHashes = [genesis.getHash()];
 
     const block2 = createDummyBlock(factory);
+    block2.setHeight(1);
     block2.parentHashes = [genesis.getHash()];
 
     const block3 = createDummyBlock(factory);
+    block3.setHeight(2);
     block3.parentHashes = [block1.getHash(), block2.getHash()];
 
     await callback(genesis);
@@ -1779,11 +1783,22 @@ describe('Node tests', () => {
         });
     });
 
-    describe('Fees calculation', async () => {
+    describe('Size fee calculation', async () => {
         it('should fail to get fees from concilium, and use Constants', async () => {
             const txSize = 100;
             const node = new factory.Node();
             node._storage.getConciliumById = sinon.fake.resolves(undefined);
+            const fakeTx = {conciliumId: 0, getSize: () => txSize};
+
+            const nFeeSize = await node._calculateSizeFee(fakeTx);
+            assert.equal(nFeeSize, parseInt(factory.Constants.fees.TX_FEE * txSize / 1024));
+        });
+
+        it('should use conctant since concilium fee too small', async () => {
+            const txSize = 100;
+            const conciliumFee = factory.Constants.fees.TX_FEE - 1;
+            const node = new factory.Node();
+            node._storage.getConciliumById = sinon.fake.resolves({getFeeTxSize: () => conciliumFee});
             const fakeTx = {conciliumId: 0, getSize: () => txSize};
 
             const nFeeSize = await node._calculateSizeFee(fakeTx);
@@ -1801,6 +1816,16 @@ describe('Node tests', () => {
             assert.equal(nFeeSize, parseInt(conciliumFee * txSize / 1024));
         });
 
+        it('should calculate fee for size less than 1Kb', async () => {
+            const txSize = 500;
+            const node = new factory.Node();
+            node._storage.getConciliumById = sinon.fake.resolves(undefined);
+            const fakeTx = {conciliumId: 0, getSize: () => txSize};
+
+            const nFeeSize = await node._calculateSizeFee(fakeTx);
+            assert.equal(nFeeSize, parseInt(factory.Constants.fees.TX_FEE * txSize / 1024));
+        });
+
         it('should calculate fee for size more than 1Kb', async () => {
             const txSize = 5000;
             const node = new factory.Node();
@@ -1809,6 +1834,99 @@ describe('Node tests', () => {
 
             const nFeeSize = await node._calculateSizeFee(fakeTx);
             assert.equal(nFeeSize, parseInt(factory.Constants.fees.TX_FEE * txSize / 1024));
+        });
+    });
+
+    describe('Contract creation fee calculation', async () => {
+        it('should fail to get fees from concilium, and use Constants', async () => {
+            const node = new factory.Node();
+            node._storage.getConciliumById = sinon.fake.resolves(undefined);
+            const fakeTx = {conciliumId: 0};
+
+            const nFeeCreation = await node._getFeeContractCreation(fakeTx);
+            assert.equal(nFeeCreation, factory.Constants.fees.CONTRACT_CREATION_FEE);
+        });
+
+        it('should use conctant since concilium fee too small', async () => {
+            const node = new factory.Node();
+            const conciliumFee = factory.Constants.fees.CONTRACT_CREATION_FEE - 1;
+            node._storage.getConciliumById = sinon.fake.resolves({getFeeContractCreation: () => conciliumFee});
+            const fakeTx = {conciliumId: 0};
+
+            const nFeeCreation = await node._getFeeContractCreation(fakeTx);
+            assert.equal(nFeeCreation, factory.Constants.fees.CONTRACT_CREATION_FEE);
+        });
+
+        it('should get it from concilium', async () => {
+            const node = new factory.Node();
+            const conciliumFee = factory.Constants.fees.CONTRACT_CREATION_FEE * 2;
+            node._storage.getConciliumById = sinon.fake.resolves({getFeeContractCreation: () => conciliumFee});
+            const fakeTx = {conciliumId: 0};
+
+            const nFeeCreation = await node._getFeeContractCreation(fakeTx);
+            assert.equal(nFeeCreation, conciliumFee);
+        });
+    });
+
+    describe('Contract invocation fee calculation', async () => {
+        it('should fail to get fees from concilium, and use Constants', async () => {
+            const node = new factory.Node();
+            node._storage.getConciliumById = sinon.fake.resolves(undefined);
+            const fakeTx = {conciliumId: 0};
+
+            const nFeeInvocation = await node._getFeeContractInvocatoin(fakeTx);
+            assert.equal(nFeeInvocation, factory.Constants.fees.CONTRACT_INVOCATION_FEE);
+        });
+
+        it('should use conctant since concilium fee too small', async () => {
+            const node = new factory.Node();
+            const conciliumFee = factory.Constants.fees.CONTRACT_INVOCATION_FEE - 1;
+            node._storage.getConciliumById = sinon.fake.resolves({getFeeContractInvocation: () => conciliumFee});
+            const fakeTx = {conciliumId: 0};
+
+            const nFeeInvocation = await node._getFeeContractInvocatoin(fakeTx);
+            assert.equal(nFeeInvocation, factory.Constants.fees.CONTRACT_INVOCATION_FEE);
+        });
+
+        it('should get it from concilium', async () => {
+            const node = new factory.Node();
+            const conciliumFee = factory.Constants.fees.CONTRACT_INVOCATION_FEE * 2;
+            node._storage.getConciliumById = sinon.fake.resolves({getFeeContractInvocation: () => conciliumFee});
+            const fakeTx = {conciliumId: 0};
+
+            const nFeeInvocation = await node._getFeeContractInvocatoin(fakeTx);
+            assert.equal(nFeeInvocation, conciliumFee);
+        });
+    });
+
+    describe('Storage fee calculation', async () => {
+        it('should fail to get fees from concilium, and use Constants', async () => {
+            const node = new factory.Node();
+            node._storage.getConciliumById = sinon.fake.resolves(undefined);
+            const fakeTx = {conciliumId: 0};
+
+            const nFeeStorage = await node._getFeeStorage(fakeTx);
+            assert.equal(nFeeStorage, factory.Constants.fees.STORAGE_PER_BYTE_FEE);
+        });
+
+        it('should use conctant since concilium fee too small', async () => {
+            const node = new factory.Node();
+            const conciliumFee = factory.Constants.fees.STORAGE_PER_BYTE_FEE - 1;
+            node._storage.getConciliumById = sinon.fake.resolves({getFeeStorage: () => conciliumFee});
+            const fakeTx = {conciliumId: 0};
+
+            const nFeeCreation = await node._getFeeStorage(fakeTx);
+            assert.equal(nFeeCreation, factory.Constants.fees.STORAGE_PER_BYTE_FEE);
+        });
+
+        it('should get it from concilium', async () => {
+            const node = new factory.Node();
+            const conciliumFee = factory.Constants.fees.STORAGE_PER_BYTE_FEE * 2;
+            node._storage.getConciliumById = sinon.fake.resolves({getFeeStorage: () => conciliumFee});
+            const fakeTx = {conciliumId: 0};
+
+            const nFeeCreation = await node._getFeeStorage(fakeTx);
+            assert.equal(nFeeCreation, conciliumFee);
         });
     });
 
@@ -1956,12 +2074,15 @@ describe('Node tests', () => {
 
         it('should use all INPUT coins as fee (no changeReceiver - no change output)', async () => {
             const node = new factory.Node();
+            await node.ensureLoaded();
+
             const nTotalHas = 1e5;
             const nChange = 1e4;
             const coinsUsed = 1000;
 
             const {tx, strContractAddr} = createContractInvocationTx({});
             tx.addReceiver(nChange, generateAddress());
+            ;
 
             node._storage.getContract = sinon.fake.returns(new factory.Contract({conciliumId}, strContractAddr));
 
@@ -1972,7 +2093,7 @@ describe('Node tests', () => {
 
             const {fee, patchThisTx} = await node._processTx(undefined, false, tx);
 
-            assert.equal(fee, coinsUsed + await node._calculateSizeFee(tx));
+            assert.equal(fee, coinsUsed);
             assert.isOk(patchThisTx.getContract(strContractAddr));
             const receipt = patchThisTx.getReceipt(tx.hash());
             assert.isOk(receipt);
@@ -1982,6 +2103,8 @@ describe('Node tests', () => {
         it('should use all AVAIL coins as fee (no changeReceiver)', async () => {
             const node = new factory.Node();
             const nTotalHas = 1e5;
+            const coinsUsed = 1000;
+
 
             const {tx, strContractAddr} = createContractInvocationTx({}, false);
 
@@ -1989,12 +2112,12 @@ describe('Node tests', () => {
 
             node._app.processTxInputs = sinon.fake.returns({totalHas: nTotalHas, patch: new factory.PatchDB()});
             node._app.runContract = sinon.fake.returns(
-                new factory.TxReceipt({coinsUsed: 1000, status: factory.Constants.TX_STATUS_OK})
+                new factory.TxReceipt({coinsUsed, status: factory.Constants.TX_STATUS_OK})
             );
 
             const {fee, patchThisTx} = await node._processTx(undefined, false, tx);
 
-            assert.equal(fee, nTotalHas);
+            assert.equal(fee, nTotalHas - await node._calculateSizeFee(tx));
             assert.isOk(patchThisTx.getContract(strContractAddr));
             assert.isOk(patchThisTx.getReceipt(tx.hash()));
         });
@@ -2270,6 +2393,7 @@ describe('Node tests', () => {
         it('should storeBadTxHash', async () => {
             const node = new factory.Node();
             await node.ensureLoaded();
+            await node._storage.dropAllForReIndex();
 
             node._processTx = sinon.fake.rejects('failed');
             node._mempool.storeBadTxHash = sinon.fake();
@@ -2282,6 +2406,20 @@ describe('Node tests', () => {
             }
 
             throw new Error('Unexpected success');
+        });
+    });
+
+    describe('rebuildDb', async => {
+        it('should rebuild simple fork', async () => {
+            const node = new factory.Node();
+            await node.ensureLoaded();
+            node._processBlock = sinon.fake();
+
+            await createSimpleFork(async block => await node._storage.saveBlock(block));
+
+            await node.rebuildDb();
+            assert.equal(node._mainDag.order, 4);
+            assert.equal(node._mainDag.size, 4);
         });
     });
 });

@@ -73,6 +73,85 @@ function questionAsync(prompt, password = false) {
     });
 }
 
+function decryptPkFileContent(Crypto, fileContent, password) {
+    let objEncodedData;
+    let encoding = 'hex';
+
+    try {
+        objEncodedData = JSON.parse(fileContent);
+    } catch (e) {
+
+        // V1: concatenated salt, iv, base64Encoded
+        const salt = fileContent.substr(0, 32);
+        const iv = fileContent.substr(32, 32);
+        const encrypted = Buffer.from(fileContent.substring(64), 'base64');
+
+        objEncodedData = {
+            iv,
+            encrypted,
+            salt,
+            hashOptions: {iterations: 100},
+            keyAlgo: 'pbkdf2'
+        };
+
+        // decrypted value will be neither 32 byte length buffer, nor hex String of length 64, but 64 byte length Buffer
+        encoding = undefined;
+    }
+
+    return Crypto.decrypt(password, objEncodedData).toString(encoding);
+}
+
+/**
+ * Designed to pass values to Docker container
+ * So, other option have no use in Docker deployment
+ *
+ * @returns Object
+ */
+function mapEnvToOptions() {
+
+    const {SEED_ADDRESS, RPC_USER, RPC_PASS, GENESIS_HASH, CONCILIUM_CONTRACT, WITNESS_NODE, SEED_NODE, BUILD_TX_INDEX, WALLET_SUPPORT} = process.env;
+    return {
+
+        // if you plan to send TXns through your node
+        rpcUser: RPC_USER,
+        rpcPass: RPC_PASS,
+
+        // if you plan to query your node
+        txIndex: BUILD_TX_INDEX ? true : false,
+        walletSupport: WALLET_SUPPORT ? true : false,
+
+        // WITNESS_NODE is a Boolean variable, indicating witness node.
+        // Just mount your real file name into container /app/private
+        privateKey: WITNESS_NODE ? './private' : undefined,
+        seed: SEED_NODE ? true : false,
+
+        // Variables below used for development, regular user don't need it
+        seedAddr: SEED_ADDRESS,
+        genesisHash: GENESIS_HASH,
+        conciliumDefContract: CONCILIUM_CONTRACT
+    };
+}
+
+/**
+ * Maps user-defined parameters into Node parameters names
+ *
+ * @param {Object} objUserParams from command line or ENV
+ * @returns Object
+ */
+function mapOptionsToNodeParameters(objUserParams) {
+    return {
+
+        // if command line parameter have same name as option name, like "rpcUser"
+        ...objUserParams,
+
+        // non matching names
+        buildTxIndex: objUserParams.txIndex,
+        listenPort: objUserParams.port,
+        arrSeedAddresses: objUserParams.seedAddr ? [objUserParams.seedAddr] : [],
+        isSeed: objUserParams.seed
+    };
+}
+
 module.exports = {
     sleep: (delay) => {
         return new Promise(resolve => {
@@ -126,6 +205,9 @@ module.exports = {
             {name: "watchAddress", type: String, multiple: true},
             {name: "reIndexWallet", type: Boolean, multiple: false},
             {name: "walletSupport", type: Boolean, multiple: false},
+            {name: "listWallets", type: Boolean, multiple: false},
+            {name: "localDevNode", type: Boolean, multiple: false},
+            {name: "rebuildDb", type: Boolean, multiple: false},
             {name: "sqlConfig", type: String, multiple: false},
             {name: "listWallets", type: Boolean, multiple: false}
         ];
@@ -151,8 +233,19 @@ module.exports = {
     async readPrivateKeyFromFile(Crypto, path) {
         const encodedContent = fs.readFileSync(path, 'utf8');
 
-        // TODO suppress echo
-        const password = await questionAsync('Enter password to decrypt private key: ', true);
-        return await Crypto.decrypt(password, JSON.parse(encodedContent));
-    }
+        let password;
+        if (typeof process.env.PK_PASSWORD !== 'string') {
+
+            // TODO suppress echo
+            password = await questionAsync('Enter password to decrypt private key: ', true);
+        } else {
+            password = process.env.PK_PASSWORD.trim();
+        }
+
+        return decryptPkFileContent(Crypto, encodedContent, password);
+    },
+
+    decryptPkFileContent,
+    mapEnvToOptions,
+    mapOptionsToNodeParameters
 };

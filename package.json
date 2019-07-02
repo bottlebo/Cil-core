@@ -1,6 +1,9 @@
 {
   "name": "chain-in-law",
-  "version": "1.0.0",
+  "engines": {
+    "node": ">=10.15.2"
+  },
+  "version": "0.1.0",
   "main": "factory.js",
   "dependencies": {
     "command-line-args": "^5.0.2",
