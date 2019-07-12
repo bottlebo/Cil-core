@@ -1,5 +1,11 @@
 {
   "devel":{
+    "baseURL": "http://localhost:5000/api/"
+  },
+  "docker-test": {
     "baseURL": "http://app_cil-api-test_1:80/api/"
+  },
+  "docker-prod": {
+    "baseURL": "http://app_cil-api-prod_1:80/api/"
   }
 }
