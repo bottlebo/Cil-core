@@ -1,5 +1,5 @@
 {
   "devel":{
-    "baseURL":"http://localhost:5000/api/"
+    "baseURL": "http://app_cil-api-test_1:80/api/"
   }
 }
