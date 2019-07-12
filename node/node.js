@@ -937,7 +937,7 @@ module.exports = (factory, factoryOptions) => {
             try {
                 for (let {strTxHash, patchTx} of this._mempool.getLocalTxnsPatches()) {
 
-                    // mempool just loaded, we need to exec all stored local txns
+                    // NO patches - means mempool just loaded, we need to exec all stored local txns
                     if (!patchTx) {
                         const localTx = this._mempool.getTx(strTxHash);
 
@@ -953,6 +953,9 @@ module.exports = (factory, factoryOptions) => {
 
                 // all merges passed - accept new tx
                 this._mempool.addLocalTx(newTx, patchNewTx);
+
+                // inform about new Tx
+                await this._informNeighbors(newTx);
             } catch (e) {
                 throw new Error(`Tx is not accepted: ${e.message}`);
             }
@@ -1241,6 +1244,8 @@ module.exports = (factory, factoryOptions) => {
             if (contract) {
                 patchThisTx.setContract(contract);
 
+                if (!contract.getConciliumId()) contract.setConciliumId(tx.conciliumId);
+
                 // increase balance of contract
                 if (receipt.isSuccessful()) contract.deposit(tx.getContractSentAmount());
             }
@@ -1488,6 +1493,27 @@ module.exports = (factory, factoryOptions) => {
             }
 
             await this._storage.updateLastAppliedBlocks(arrNewLastApplied);
+
+            this._createPseudoRandomSeed(arrNewLastApplied);
+        }
+
+        /**
+         * Simple deterministic algorithm For seeding some pseudo random value
+         *
+         * @param {Array <String>} arrLastStableBlockHashes
+         * @private
+         */
+        _createPseudoRandomSeed(arrLastStableBlockHashes) {
+            const lowestHash = arrLastStableBlockHashes.reduce((strLowest, strCurrent) => {
+                return strLowest < strCurrent ? strLowest : strCurrent;
+            }, 'z');
+
+            const buffHash = Buffer.from(lowestHash, 'hex');
+            let seed = 0;
+            for (let [, val] of buffHash.entries()) {
+                seed += val;
+            }
+            return seed;
         }
 
         /**

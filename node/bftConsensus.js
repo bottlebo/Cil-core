@@ -43,7 +43,7 @@ module.exports = (factory) => {
             this._arrAddresses = concilium.getAddresses().sort().map(addr => addr.toString('hex'));
 
             this._state = States.ROUND_CHANGE;
-            this._roundFromNetworkTime();
+            this._concilium.initRounds();
 
             this._tock = new Tick(this);
             this._tock.setInterval(MAIN_TIMER_NAME, this._stateChange.bind(this), Timeouts.INIT);
@@ -157,7 +157,7 @@ module.exports = (factory) => {
         runConsensus() {
 
             // i'm a single node (for example Initial witness)
-            if (this._concilium.getQuorum() === 1 &&
+            if (this._concilium.getMembersCount() === 1 &&
                 this._arrAddresses.includes(this._wallet.address)) {
                 return this._views[this._wallet.address][this._wallet.address];
             }
@@ -337,7 +337,7 @@ module.exports = (factory) => {
             }
             if (prevState !== this._state) {
                 debug(
-                    `BFT "${this._nonce}" STATE changed! prev: "${prevState}" new "${this._state}" Round: ${this._roundNo}`);
+                    `BFT "${this._nonce}" STATE changed! prev: "${prevState}" new "${this._state}" Round: ${this._concilium.getRound()}`);
             }
 
             this._adjustTimer();
@@ -357,19 +357,15 @@ module.exports = (factory) => {
          */
         _roundChangeHandler(isConsensus, consensusValue) {
             if (!isConsensus) {
-
-                // if there is no consensus - force all to use _roundFromNetworkTime
-                this._roundFromNetworkTime();
-                debug(`BFT "${this._nonce}" adjusting round to NETWORK time`);
+                debug(`BFT "${this._nonce}" round failed`);
                 this._nextRound();
             } else {
-                this._roundNo = consensusValue.roundNo;
                 this._state = States.BLOCK;
                 this._adjustTimer();
 
                 if (this.shouldPublish()) {
                     debug(
-                        `BFT "${this._nonce}" will create block! RoundNo: ${this._roundNo}`);
+                        `BFT "${this._nonce}" will create block! RoundNo: ${this._concilium.getRound()}`);
                     this.emit('createBlock');
                 }
             }
@@ -412,7 +408,8 @@ module.exports = (factory) => {
 
                         if (!arrSignatures || !arrSignatures.length) {
                             logger.error(
-                                `Consensus reached for block ${consensusValue.blockHash}, but fail to get signatures!`);
+                                `Consensus reached for block ${consensusValue.blockHash.toString(
+                                    'hex')}, but fail to get signatures!`);
                             return this._nextRound();
                         }
 
@@ -422,7 +419,8 @@ module.exports = (factory) => {
 
                         // Proposer misbehave!! sent us different block than other!
                         logger.error(`Proposer (address "${
-                            this._concilium.getProposerAddress(this._roundNo)}") misbehave. Sent different blocks!`);
+                            this._concilium.getProposerAddress(
+                                this._concilium.getRound())}") misbehave. Sent different blocks!`);
                     }
                 }
 
@@ -447,33 +445,21 @@ module.exports = (factory) => {
             this._state = States.ROUND_CHANGE;
 
             debug(
-                `BFT "${this._nonce}" restarting "ROUND_CHANGE" new round: ${this._roundNo}`);
+                `BFT "${this._nonce}" restarting "ROUND_CHANGE" new round: ${this._concilium.getRound()}`);
 
-            const msg = new MsgWitnessNextRound({conciliumId: this.conciliumId, roundNo: ++this._roundNo});
+            const msg = new MsgWitnessNextRound({conciliumId: this.conciliumId, roundNo: this._concilium.nextRound()});
             msg.sign(this._wallet.privateKey);
             this.emit('message', msg);
         }
 
         /**
-         * let's choose one, that should be same for all connected peers.
-         * All peers that ahead or behind us more than Constants.networkTimeDiff will be banned
-         *
-         * @private
-         */
-        _roundFromNetworkTime() {
-            const networkNow = this._getNetworkTime();
-            this._roundNo = parseInt(networkNow / Constants.TOLERATED_TIME_DIFF * 3);
-        }
-
-        /**
          * Whether it's turn of 'proposer' to propose block?
-         * Now implemented round-robin, replace if needed
          *
          * @param {String} proposer - address of proposer
          * @return {boolean}
          */
         shouldPublish(proposer = this._wallet.address) {
-            return this._concilium.getProposerAddress(this._roundNo) === proposer;
+            return this._concilium.getProposerAddress(this._concilium.getRound()) === proposer;
         }
 
         timeForWitnessBlock() {
@@ -552,6 +538,14 @@ module.exports = (factory) => {
             assert(quorum, `Quorum couldn't be zero!`);
 
             return gatheredWeight >= quorum ? arrSignatures : undefined;
+        }
+
+        setRoundSeed(nNewSeed) {
+            this._concilium.changeSeed(nNewSeed);
+        }
+
+        getCurrentRound() {
+            return this._concilium.getRound();
         }
     };
 };
