@@ -70,6 +70,8 @@ const ArrayOfWrapper = require('./structures/arrayOf');
 const ContractWrapper = require('./structures/contract');
 const TxReceiptWrapper = require('./structures/txReceipt');
 
+const utils = require('./utils');
+
 const pack = require('./package');
 
 class Factory {
@@ -290,6 +292,10 @@ class Factory {
 
     get Inventory() {
         return this._inventoryImplementation;
+    }
+
+    get utils() {
+        return utils;
     }
 
     asyncLoad() {
