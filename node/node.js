@@ -471,6 +471,7 @@ module.exports = (factory, factoryOptions) => {
                         peer.doneGetBlocks();
                     } else {
                         peer.markAsEven();
+                        peer.singleBlockRequested();
                     }
                 }
             } catch (e) {
