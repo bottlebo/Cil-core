@@ -460,6 +460,7 @@ module.exports = (factory) => {
 
         getBlocksSent() {
             this._getBlocksValidTill = Date.now() + Constants.INV_REQUEST_HOLDOFF;
+            this._nCountSingleBlocks = 0;
         }
 
         isGetBlocksSent() {
@@ -468,6 +469,11 @@ module.exports = (factory) => {
 
         doneGetBlocks() {
             this._getBlocksValidTill = undefined;
+        }
+
+        singleBlockRequested() {
+            this._nCountSingleBlocks++;
+            if (this._nCountSingleBlocks > 6) this.markAsPossiblyAhead();
         }
     };
 };
