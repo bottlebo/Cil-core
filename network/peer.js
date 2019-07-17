@@ -389,6 +389,8 @@ module.exports = (factory) => {
 
             this._loadDone = false;
             this._witnessLoadDone = false;
+
+            this._nCountSingleBlocks = 0;
         }
 
         async _tick() {
@@ -459,8 +461,8 @@ module.exports = (factory) => {
         }
 
         getBlocksSent() {
-            this._getBlocksValidTill = Date.now() + Constants.INV_REQUEST_HOLDOFF;
             this._nCountSingleBlocks = 0;
+            this._getBlocksValidTill = Date.now() + Constants.INV_REQUEST_HOLDOFF;
         }
 
         isGetBlocksSent() {
@@ -472,8 +474,7 @@ module.exports = (factory) => {
         }
 
         singleBlockRequested() {
-            this._nCountSingleBlocks++;
-            if (this._nCountSingleBlocks > 6) this.markAsPossiblyAhead();
+            if (++this._nCountSingleBlocks > 6) this.markAsPossiblyAhead();
         }
     };
 };
