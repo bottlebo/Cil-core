@@ -33,7 +33,7 @@ async function main() {
     const arrUtxos = await getUtxos(wallet.address);
     const {arrCoins} = gatherInputsForAmount(arrUtxos, amount + fees);
 
-    const tx = joinConcilium(1, amount, wallet, arrCoins);
+    const tx = leaveConcilium(1, amount, wallet, arrCoins);
     console.error(
         `Here is TX containment: ${JSON.stringify(prepareForStringifyObject(tx.rawData), undefined, 2)}`);
 //    console.log(tx.encode().toString('hex'));
@@ -49,9 +49,9 @@ async function main() {
  * @returns {*}
  */
 
-function joinConcilium(conciliumId, amount, wallet, arrUtxos) {
+function leaveConcilium(conciliumId, amount, wallet, arrUtxos) {
     const contractCode = {
-        method: 'joinConcilium',
+        method: 'leaveConcilium',
         arrArguments: [conciliumId]
     };
 

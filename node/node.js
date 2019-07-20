@@ -154,11 +154,7 @@ module.exports = (factory, factoryOptions) => {
 
             // will try to load address book
             const arrPeers = await this._peerManager.loadPeers();
-            if (arrPeers.length) {
-
-                // success, we have address book - let's deal with them
-                arrPeers.forEach(peer => this._peerManager.addPeer(peer, true));
-            } else {
+            if (!arrPeers.length) {
 
                 // empty address book. let's ask seeds for peer list
                 this._arrSeedAddresses.forEach(strAddr =>
@@ -452,7 +448,7 @@ module.exports = (factory, factoryOptions) => {
                     if (bShouldRequest) {
                         invToRequest.addVector(objVector);
                         this._requestCache.request(objVector.hash);
-                        debugMsgFull(`Requesting "${objVector.hash.toString('hex')}" from "${peer.address}"`);
+                        debugMsgFull(`Will request "${objVector.hash.toString('hex')}" from "${peer.address}"`);
                     }
                 }
 
@@ -562,12 +558,17 @@ module.exports = (factory, factoryOptions) => {
             do {
                 const setNextLevel = new Set();
                 for (let hash of currentLevel) {
-
+                    const biCurrent = this._mainDag.getBlockInfo(hash);
                     this._mainDag.getChildren(hash).forEach(
                         child => {
+                            const biChild = this._mainDag.getBlockInfo(child);
 
-                            // we already processed it
-                            if (!setBlocksToSend.has(child) && !setKnownHashes.has(child)) setNextLevel.add(child);
+                            // if we didn't already processed it and it's direct child (height diff === 1) - let's add it
+                            // it not direct child - we'll add it when find direct one
+                            if (!setBlocksToSend.has(child) && !setKnownHashes.has(child)
+                                && biChild.getHeight() - biCurrent.getHeight() === 1) {
+                                setNextLevel.add(child);
+                            }
                         });
                     setBlocksToSend.add(hash);
                     if (setBlocksToSend.size > Constants.MAX_BLOCKS_INV) break;
@@ -2054,7 +2055,7 @@ module.exports = (factory, factoryOptions) => {
                 if (peer && !peer.disconnected) {
                     peer.singleBlockRequested();
 
-                    debugMsg(`Requesting ${msg.inventory.vector.length} blocks from ${peer.address}`);
+                    debugMsgFull(`Requesting ${msg.inventory.vector.length} blocks from ${peer.address}`);
                     await peer.pushMessage(msg);
                 }
             }
@@ -2222,9 +2223,10 @@ module.exports = (factory, factoryOptions) => {
         /**
          * Rebuild chainstate from blockDb (reExecute them one more time)
          *
+         * @param {String | undefined} strHashToStop - hash of block to stop rebuild. this block also will be executed
          * @returns {Promise<void>}
          */
-        async rebuildDb() {
+        async rebuildDb(strHashToStop) {
             this._mainDag = new MainDag();
 
             for await (let {value} of this._storage.readBlocks()) {
@@ -2232,16 +2234,22 @@ module.exports = (factory, factoryOptions) => {
                 this._mainDag.addBlock(new BlockInfo(block.header));
             }
 
+            this._queryPeerForRestOfBlocks = this._requestUnknownBlocks = () => {
+                console.error('we have unresolved dependencies! will possibly fail to rebuild DB');
+            };
+            const originalQueueBlockExec = this._queueBlockExec.bind(this);
+            let bStop = Constants.GENESIS_BLOCK === strHashToStop;
+            this._queueBlockExec = (hash, peer) => {
+                if (bStop) return;
+                if (hash === strHashToStop) bStop = true;
+                originalQueueBlockExec(hash, peer);
+            };
+
             const genesis = this._mainDag.getBlockInfo(Constants.GENESIS_BLOCK);
             assert(genesis, 'No Genesis found');
-            let arrBlockInfos = [genesis];
-            do {
-                this._mapBlocksToExec = new Map(arrBlockInfos.map(bi => [bi.getHash(), undefined]));
-                await this._blockProcessor();
-                let arrChilds = [];
-                arrBlockInfos.forEach(bi => arrChilds.concat(arrChilds, this._mainDag.getChildren(bi.getHash())));
-                arrBlockInfos = arrChilds;
-            } while (arrBlockInfos.length);
+            this._mapBlocksToExec.set(genesis.getHash(), undefined);
+
+            await this._blockProcessor();
         }
     };
 };
