@@ -17,6 +17,7 @@ function createPeerKey(peer) {
 
 module.exports = (factory, factoryOptions) => {
     const {
+        Contract,
         Transport,
         Messages,
         Constants,
@@ -661,7 +662,7 @@ module.exports = (factory, factoryOptions) => {
             }
 
             // TODO: review version compatibility
-            if (message.protocolVersion >= Constants.protocolVersion) {
+            if (message.protocolVersion == Constants.protocolVersion) {
 
                 if (!peer.version) {
                     peer.version = message.protocolVersion;
@@ -852,6 +853,8 @@ module.exports = (factory, factoryOptions) => {
                 switch (event) {
                     case 'tx':
                         return await this._acceptLocalTx(content);
+                    case 'getContractData':
+                        return await this._getContractData(content);
                     case 'txReceipt':
                         return await this._storage.getTxReceipt(content);
                     case 'getBlock':
@@ -986,7 +989,7 @@ module.exports = (factory, factoryOptions) => {
             let patchThisTx;
             try {
                 await this._storage.checkTxCollision([strTxHash]);
-                ({patchThisTx} = await this._processTx(undefined, false, tx));
+                ({patchThisTx} = await this._processTx(new PatchDB(), false, tx));
                 if (bStoreInMempool) this._mempool.addTx(tx);
             } catch (e) {
                 this._mempool.storeBadTxHash(strTxHash);
@@ -1228,7 +1231,7 @@ module.exports = (factory, factoryOptions) => {
                     contract,
                     environment,
                     undefined,
-                    this._createCallbacksForApp(patchForBlock, patchThisTx, tx.hash()),
+                    this._createCallbacksForApp(contract, patchForBlock, patchThisTx, tx.hash()),
                     {
                         nFeeContractInvocation,
                         nFeeSize,
@@ -1256,10 +1259,20 @@ module.exports = (factory, factoryOptions) => {
             return fee;
         }
 
-        _createCallbacksForApp(patchBlock, patchTx, strTxHash) {
+        /**
+         * Used only for contract invocation
+         *
+         * @param contract
+         * @param patchBlock
+         * @param patchTx
+         * @param strTxHash
+         * @returns {createInternalTx, invokeContract}
+         * @private
+         */
+        _createCallbacksForApp(contract, patchBlock, patchTx, strTxHash) {
             return {
                 createInternalTx: this._sendCoins.bind(this, patchTx, strTxHash),
-                invokeContract: this._invokeNestedContract.bind(this, patchBlock, patchTx, strTxHash)
+                invokeContract: this._invokeNestedContract.bind(this, contract, patchBlock, patchTx, strTxHash)
             };
         }
 
@@ -1284,9 +1297,9 @@ module.exports = (factory, factoryOptions) => {
             patchTx.setReceipt(strTxHash, receipt);
         }
 
-        async _invokeNestedContract(patchBlock, patchTx, strTxHash, strAddress, objParams) {
+        async _invokeNestedContract(contract, patchBlock, patchTx, strTxHash, strAddress, objParams) {
             typeforce(
-                typeforce.tuple(types.Patch, types.Patch, types.Str64, types.Address, typeforce.Object),
+                typeforce.tuple(types.Contract, types.Patch, types.Patch, types.Str64, types.Address, typeforce.Object),
                 arguments
             );
 
@@ -1296,26 +1309,30 @@ module.exports = (factory, factoryOptions) => {
                 [method, arrArguments, coinsLimit]
             );
 
-            const contract = await this._getContractByAddr(strAddress, patchBlock);
-            if (!contract) throw new Error('Contract not found!');
+            const cNestedContract = await this._getContractByAddr(strAddress, patchBlock);
+            if (!cNestedContract) throw new Error('Contract not found!');
+
+            // context set - it's delegatecall, proxy contract
+            if (context) cNestedContract.proxyContract(contract);
+
             const newEnv = {
                 ...environment,
-                contractAddr: contract.getStoredAddress(),
-                balance: contract.getBalance()
+                contractAddr: cNestedContract.getStoredAddress(),
+                balance: cNestedContract.getBalance()
             };
             const receipt = await this._app.runContract(
                 coinsLimit,
                 {method, arrArguments},
-                contract,
+                cNestedContract,
                 newEnv,
                 context,
-                this._createCallbacksForApp(patchBlock, patchTx, strTxHash),
+                this._createCallbacksForApp(cNestedContract, patchBlock, patchTx, strTxHash),
                 objFees
             );
 
             if (receipt.isSuccessful()) {
                 patchTx.setReceipt(strTxHash, receipt);
-                patchTx.setContract(contract);
+                patchTx.setContract(cNestedContract);
             }
             return {success: receipt.isSuccessful(), fee: receipt.getCoinsUsed()};
         }
@@ -1647,7 +1664,7 @@ module.exports = (factory, factoryOptions) => {
             this._pendingBlocks = new PendingBlocksManager(arrLastStableHashes);
 
             const mapBlocks = new Map();
-            const mapPatches = new Map();
+            const setPatches = new Set();
             for (let hash of arrPendingBlocksHashes) {
                 hash = hash.toString('hex');
                 let bi = this._mainDag.getBlockInfo(hash);
@@ -1660,24 +1677,24 @@ module.exports = (factory, factoryOptions) => {
             const runBlock = async (hash) => {
 
                 // are we already executed this block
-                if (!mapBlocks.get(hash) || mapPatches.has(hash)) return;
+                if (!mapBlocks.get(hash) || setPatches.has(hash)) return;
 
                 const block = mapBlocks.get(hash);
                 for (let parent of block.parentHashes) {
-                    if (!mapPatches.has(parent)) await runBlock(parent);
+                    if (!setPatches.has(parent)) await runBlock(parent);
                 }
-                mapPatches.set(hash, await this._execBlock(block));
+                this._processedBlock = block;
+                const patchBlock = await this._execBlock(block);
+                this._pendingBlocks.addBlock(block, patchBlock);
+                setPatches.add(hash);
+                this._processedBlock = undefined;
             };
 
             for (let hash of arrPendingBlocksHashes) {
                 await runBlock(hash);
             }
 
-            if (mapBlocks.size !== mapPatches.size) throw new Error('rebuildPending. Failed to process all blocks!');
-
-            for (let [hash, block] of mapBlocks) {
-                this._pendingBlocks.addBlock(block, mapPatches.get(hash));
-            }
+            if (mapBlocks.size !== setPatches.size) throw new Error('rebuildPending. Failed to process all blocks!');
         }
 
         async _blockBad(blockOrBlockInfo) {
@@ -2182,7 +2199,7 @@ module.exports = (factory, factoryOptions) => {
                 contract,
                 newEnv,
                 undefined,
-                this._createCallbacksForApp(new PatchDB(), new PatchDB(), Crypto.randomBytes(32)),
+                this._createCallbacksForApp(new Contract({}), new PatchDB(), new PatchDB(), Crypto.randomBytes(32)),
                 {},
                 true
             );
@@ -2214,6 +2231,15 @@ module.exports = (factory, factoryOptions) => {
             assert(calculatedHeight === block.getHeight(),
                 `Incorrect height "${calculatedHeight}" were calculated for block ${block.getHash()} (expected ${block.getHeight()}`
             );
+        }
+
+        async _getContractData(strContractAddr) {
+            typeforce(types.StrAddress, strContractAddr);
+
+            const cont = await this._storage.getContract(
+                Buffer.from(strContractAddr, 'hex'));
+
+            return cont.getData();
         }
 
         async cleanDb() {
