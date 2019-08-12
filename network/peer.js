@@ -12,7 +12,7 @@ const Tick = require('tick-tock');
  */
 
 module.exports = (factory) => {
-    const {Messages, Transport, Constants} = factory;
+    const {Messages, Transport, Constants, FactoryOptions} = factory;
     const {
         MsgCommon,
         PeerInfo
@@ -156,11 +156,7 @@ module.exports = (factory) => {
         }
 
         get witnessLoadDone() {
-            return this._witnessLoadDone || this.disconnected;
-        }
-
-        set witnessLoadDone(trueVal) {
-            this._witnessLoadDone = true;
+            return !this.disconnected && this._persistent && Array.isArray(this._tags) && this._tags.length;
         }
 
         get offsetDelta() {
@@ -178,6 +174,16 @@ module.exports = (factory) => {
 
         get bannedTill() {
             return this._bannedTill;
+        }
+
+        /**
+         * Update capabilities & canonical port from MSG_VERSION
+         *
+         * @param peerInfo
+         */
+        updatePeerFromPeerInfo(peerInfo) {
+            this._peerInfo.capabilities = peerInfo.capabilities;
+            this._peerInfo.port = peerInfo.port;
         }
 
         /**
@@ -388,7 +394,6 @@ module.exports = (factory) => {
             this._msecOffsetDelta = 0;
 
             this._loadDone = false;
-            this._witnessLoadDone = false;
 
             this._nCountSingleBlocks = 0;
         }
@@ -474,7 +479,7 @@ module.exports = (factory) => {
         }
 
         singleBlockRequested() {
-            if (++this._nCountSingleBlocks > 6) this.markAsPossiblyAhead();
+            if (!FactoryOptions.slowBoot && ++this._nCountSingleBlocks > 6) this.markAsPossiblyAhead();
         }
     };
 };

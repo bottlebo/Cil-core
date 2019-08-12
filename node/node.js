@@ -154,30 +154,40 @@ module.exports = (factory, factoryOptions) => {
             await this._mergeSeedPeers();
 
             // will try to load address book
-            const arrPeers = await this._peerManager.loadPeers();
-            if (!arrPeers.length) {
-
-                // empty address book. let's ask seeds for peer list
-                this._arrSeedAddresses.forEach(strAddr =>
-                    this._peerManager.addPeer(new PeerInfo({
-                        address: Transport.strToAddress(factory.Transport.toIpV6Address(strAddr)),
-                        capabilities: [{service: Constants.NODE}]
-                    })), true);
-            }
+            await this._peerManager.loadPeers();
 
             // start worker
             if (!this._workerSuspended) setImmediate(this._nodeWorker.bind(this));
 
-            // start connecting to peers
-            // TODO: make it not greedy, because we should keep slots for incoming connections! i.e. twice less than _nMaxPeers
-            const arrBestPeers = this._peerManager.findBestPeers();
-            await this._connectToPeers(arrBestPeers);
+            // start connecting to peers (just seed peers! to get network topology
+            // the rest will be connected by _reconnectPeers)
+            const arrSeedPeers = this._arrSeedAddresses.map(
+                strAddr => this._peerManager.addPeer(
+                    new PeerInfo({
+                        address: Transport.strToAddress(factory.Transport.toIpV6Address(strAddr)),
+                        capabilities: [{service: Constants.NODE}]
+                    })
+                )
+            );
+            await this._connectToPeers(arrSeedPeers);
 
             this._reconnectTimer.setInterval(
                 Constants.PEER_RECONNECT_TIMER,
                 this._reconnectPeers,
                 Constants.PEER_RECONNECT_INTERVAL
             );
+        }
+
+        async _connectToPeers(peers) {
+            for (let peer of peers) {
+                try {
+                    if (peer.disconnected) await this._connectToPeer(peer);
+                    await peer.pushMessage(this._createMsgVersion());
+                    await peer.loaded();
+                } catch (e) {
+                    logger.error(e.message);
+                }
+            }
         }
 
         /**
@@ -230,6 +240,8 @@ module.exports = (factory, factoryOptions) => {
 
         async _incomingConnection(connection) {
             try {
+
+                // TODO: disconnect this peer if we already have Constant.MAX_PEERS (CIL-124)
                 this._peerManager.addCandidateConnection(connection);
             } catch (err) {
                 logger.error(err);
@@ -241,22 +253,19 @@ module.exports = (factory, factoryOptions) => {
             this._msecOffset -= peer.offsetDelta;
         }
 
-        async _connectToPeers(peers) {
-            for (let peer of peers) {
-                try {
-                    if (peer.disconnected) await this._connectToPeer(peer);
-                    await peer.pushMessage(this._createMsgVersion());
-                    await peer.loaded();
-                } catch (e) {
-                    logger.error(e.message);
-                }
-            }
-        }
-
         async _reconnectPeers() {
-            let bestPeers = this._peerManager.findBestPeers().filter(p => p.disconnected);
-            let peers = bestPeers.splice(0, Constants.MIN_PEERS - this._peerManager.getConnectedPeers().length);
-            await this._connectToPeers(peers);
+            if (this._bReconnectInProgress) return;
+
+            this._bReconnectInProgress = true;
+            try {
+                let bestPeers = this._peerManager.findBestPeers().filter(p => p.disconnected);
+                let peers = bestPeers.splice(0, Constants.MIN_PEERS - this._peerManager.getConnectedPeers().length);
+                await this._connectToPeers(peers);
+            } catch (e) {
+                console.error(e.message);
+            } finally {
+                this._bReconnectInProgress = false;
+            }
         }
 
         /**
@@ -395,7 +404,7 @@ module.exports = (factory, factoryOptions) => {
         }
 
         async _handleArrivedBlock(block, peer) {
-            const lock = await this._mutex.acquire([`blockReceived`]);
+            const lock = await this._mutex.acquire(['blockReceived', 'inventory']);
 
             try {
 
@@ -674,9 +683,11 @@ module.exports = (factory, factoryOptions) => {
                     return;
                 }
 
-                // very beginning of inbound connection
                 if (peer.inbound) {
+
+                    // very beginning of inbound connection
                     const result = this._peerManager.associatePeer(peer, message.peerInfo);
+
                     if (result instanceof Peer) {
 
                         // send own version
@@ -709,6 +720,9 @@ module.exports = (factory, factoryOptions) => {
                         peer.disconnect(reason);
                         return;
                     }
+                } else {
+                    peer.updatePeerFromPeerInfo(message.peerInfo);
+                    const result = this._peerManager.addPeer(peer, true);
                 }
 
                 this._adjustNetworkTime(_offset);
@@ -768,8 +782,6 @@ module.exports = (factory, factoryOptions) => {
                 .filterPeers()
                 .map(peer => peer.toObject());
 
-            // add address of this node (it's absent in peerManager)
-            arrPeerInfos.push(this._myPeerInfo.data);
             if (arrPeerInfos.length > Constants.ADDR_MAX_LENGTH) {
                 logger.error('Its time to implement multiple addr messages');
             }
@@ -921,6 +933,9 @@ module.exports = (factory, factoryOptions) => {
                     }
                     case 'getWallets':
                         return await this._storage.getWallets();
+                        break;
+                    case 'getWitnesses':
+                        return await this._getAllWitnesses();
                         break;
                     default:
                         throw new Error(`Unsupported method ${event}`);
@@ -2279,6 +2294,10 @@ module.exports = (factory, factoryOptions) => {
             this._mapBlocksToExec.set(genesis.getHash(), undefined);
 
             await this._blockProcessor();
+        }
+
+        async _getAllWitnesses() {
+            return this._peerManager.filterPeers({service: Constants.WITNESS}, true);
         }
     };
 };

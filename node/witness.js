@@ -27,6 +27,8 @@ module.exports = (factory, factoryOptions) => {
 
             super(options);
 
+            this._conciliumSeed = 0;
+
             const {wallet, networkSuspended} = options;
             this._wallet = wallet;
             if (!this._wallet) throw new Error('Pass wallet into witness');
@@ -73,7 +75,6 @@ module.exports = (factory, factoryOptions) => {
             }
 
             return arrConciliums.length;
-            // TODO: add watchdog to maintain connections to as much as possible witnesses
         }
 
         async restart() {
@@ -94,19 +95,28 @@ module.exports = (factory, factoryOptions) => {
          */
         async startConcilium(concilium) {
             const peers = await this._getConciliumPeers(concilium);
-            debugWitness(
-                `******* "${this._debugAddress}" started WITNESS for concilium: "${concilium.getConciliumId()}" ${peers.length} peers *******`);
-
             for (let peer of peers) {
-                debugWitness(`--------- "${this._debugAddress}" started WITNESS handshake with "${peer.address}" ----`);
-                if (peer.disconnected) {
-                    await this._connectToPeer(peer);
-                    await peer.pushMessage(this._createMsgVersion());
-                    await peer.loaded();
-                } else {
-                    debugWitness(`(address: "${this._debugAddress}") reusing connection to "${peer.address}"`);
-                }
-                if (!peer.disconnected) {
+                await this._connectWitness(peer, concilium);
+            }
+        }
+
+        async _connectWitness(peer, concilium) {
+
+            // we already done with this neighbour
+            if (peer.witnessLoadDone) return;
+
+            debugWitness(`--------- "${this._debugAddress}" started WITNESS handshake with "${peer.address}" ----`);
+            if (peer.disconnected) {
+                await this._connectToPeer(peer);
+                await peer.pushMessage(this._createMsgVersion());
+                await peer.loaded();
+            } else {
+                debugWitness(`(address: "${this._debugAddress}") reusing connection to "${peer.address}"`);
+            }
+
+            if (!peer.disconnected) {
+
+                if (!peer.witnessLoadDone) {
 
                     // to prove that it's real witness it should perform signed handshake
                     const handshakeMsg = this._createHandshakeMessage(concilium.getConciliumId());
@@ -114,28 +124,47 @@ module.exports = (factory, factoryOptions) => {
                         `(address: "${this._debugAddress}") sending SIGNED message "${handshakeMsg.message}" to "${peer.address}"`);
                     await peer.pushMessage(handshakeMsg);
                     await Promise.race([peer.witnessLoaded(), sleep(Constants.PEER_QUERY_TIMEOUT)]);
-
-                    if (peer.witnessLoadDone) {
-
-                        // mark it for broadcast
-                        peer.addTag(createPeerTag(concilium.getConciliumId()));
-
-                        // prevent witness disconnect by timer or bytes threshold
-                        peer.markAsPersistent();
-
-                        // overwrite this peer definition with freshest data
-                        await this._peerManager.addPeer(peer, true);
-                        debugWitness(
-                            `----- "${this._debugAddress}". WITNESS handshake with "${peer.address}" DONE ---`);
-                    } else {
-                        debugWitness(`----- "${this._debugAddress}". WITNESS peer "${peer.address}" TIMED OUT ---`);
-                    }
-                } else {
-                    debugWitness(`----- "${this._debugAddress}". WITNESS peer "${peer.address}" DISCONNECTED ---`);
                 }
 
-                // TODO: request mempool tx from neighbor with MSG_MEMPOOL (https://en.bitcoin.it/wiki/Protocol_documentation#mempool)
+                if (peer.witnessLoadDone) {
+                    debugWitness(`----- "${this._debugAddress}". WITNESS handshake with "${peer.address}" DONE ---`);
+                } else {
+                    debugWitness(`----- "${this._debugAddress}". WITNESS peer "${peer.address}" TIMED OUT ---`);
+                }
+            } else {
+                debugWitness(`----- "${this._debugAddress}". WITNESS peer "${peer.address}" DISCONNECTED ---`);
             }
+
+            // TODO: request mempool tx from neighbor with MSG_MEMPOOL (https://en.bitcoin.it/wiki/Protocol_documentation#mempool)
+        }
+
+        async _storeWitness(peer, nConciliumId) {
+
+            // mark it for broadcast
+            peer.addTag(createPeerTag(nConciliumId));
+
+            // prevent witness disconnect by timer or bytes threshold
+            peer.markAsPersistent();
+
+            // overwrite this peer definition with freshest data
+            await this._peerManager.addPeer(peer, true);
+        }
+
+        async _reconnectPeers() {
+            if (this._bReconnectInProgress) return;
+
+            this._bReconnectInProgress = true;
+            try {
+                await this.start();
+
+            } catch (e) {
+                console.error(e.message);
+            } finally {
+                this._bReconnectInProgress = false;
+            }
+
+            // after we connected as much witnesses as possible - reconnect to other peers if we still have slots
+            await super._reconnectPeers();
         }
 
         /**
@@ -149,6 +178,7 @@ module.exports = (factory, factoryOptions) => {
                 concilium,
                 wallet: this._wallet
             });
+            consensus.setRoundSeed(this._conciliumSeed);
             this._setConsensusHandlers(consensus);
             this._consensuses.set(concilium.getConciliumId(), consensus);
         }
@@ -215,20 +245,16 @@ module.exports = (factory, factoryOptions) => {
                 throw(`Witness: "${this._debugAddress}" this guy UNKNOWN!`);
             }
 
-            if (peer.inbound) {
-
-                // prevent witness disconnect by timer or bytes threshold
-                peer.markAsPersistent();
+            if (!peer.witnessLoadDone) {
 
                 // we don't check version & self connection because it's done on previous step (node connection)
                 const response = this._createHandshakeMessage(messageWitness.conciliumId);
                 debugWitnessMsg(
                     `(address: "${this._debugAddress}") sending SIGNED "${response.message}" to "${peer.address}"`);
                 await peer.pushMessage(response);
-                peer.addTag(createPeerTag(messageWitness.conciliumId));
-            } else {
-                peer.witnessLoadDone = true;
             }
+
+            await this._storeWitness(peer, messageWitness.conciliumId);
         }
 
         /**
@@ -292,6 +318,8 @@ module.exports = (factory, factoryOptions) => {
                 `(address: "${this._debugAddress}") received SIGNED message "${message.message}" from "${peer.address}"`);
 
             messageWitness = new MsgWitnessCommon(message);
+
+            // we'll believe here to conciliumId. we'll check signature in bft.processMessage, and if there is no such member in this conciliumId - will throw
             const consensus = this._consensuses.get(messageWitness.conciliumId);
             if (!consensus) {
                 throw new Error(`Witness: "${this._debugAddress}" send us message for UNKNOWN CONCILIUM!`);
@@ -464,6 +492,7 @@ module.exports = (factory, factoryOptions) => {
 
         _createPseudoRandomSeed(arrLastStableBlockHashes) {
             const seed = super._createPseudoRandomSeed(arrLastStableBlockHashes);
+            this._conciliumSeed = seed;
             this._consensuses.forEach(c => c.setRoundSeed(seed));
         };
     };
