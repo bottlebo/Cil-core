@@ -1,3 +1,5 @@
+'use strict';
+
 const assert = require('assert');
 const typeforce = require('typeforce');
 
@@ -63,6 +65,8 @@ module.exports = (factory, factoryOptions) => {
                 ...factoryOptions,
                 ...options
             };
+
+            this._nMinConnections = Constants.MIN_PEERS;
 
             const {arrSeedAddresses, arrDnsSeeds, nMaxPeers, queryTimeout, workerSuspended, networkSuspended} = options;
 
@@ -259,7 +263,7 @@ module.exports = (factory, factoryOptions) => {
             this._bReconnectInProgress = true;
             try {
                 let bestPeers = this._peerManager.findBestPeers().filter(p => p.disconnected);
-                let peers = bestPeers.splice(0, Constants.MIN_PEERS - this._peerManager.getConnectedPeers().length);
+                let peers = bestPeers.splice(0, this._nMinConnections - this._peerManager.getConnectedPeers().length);
                 await this._connectToPeers(peers);
             } catch (e) {
                 console.error(e.message);
@@ -1029,35 +1033,42 @@ module.exports = (factory, factoryOptions) => {
             let patchThisTx = new PatchDB(tx.conciliumId);
             let totalHas = amountHas === undefined ? 0 : amountHas;
             let fee = 0;
-            let nFeeSize;
+            let nFeeSize = 0;
+            let nMaxFee;
 
             const lock = await this._mutex.acquire(['transaction']);
             try {
+                let contract;
+                const isContract = tx.isContractCreation() ||
+                                   !!(contract = await this._getContractByAddr(tx.getContractAddr(), patchForBlock));
 
-                // process input (for regular block only)
+                // process moneys
                 if (!isGenesis) {
                     tx.verify();
                     const patchUtxos = await this._storage.getUtxosPatch(tx.utxos);
                     const patchMerged = patchForBlock ? patchForBlock.merge(patchUtxos) : patchUtxos;
                     ({totalHas, patch: patchThisTx} = this._app.processTxInputs(tx, patchMerged));
-                }
 
-                let nRemainingCoins = totalHas;
-                if (!isGenesis) {
-
-                    // calculate TX size fee
+                    // calculate TX size fee. Calculated for every tx, not only for contracts
                     nFeeSize = await this._calculateSizeFee(tx, isGenesis);
-                    nRemainingCoins = totalHas - nFeeSize;
-                    assert(nRemainingCoins > 0, `Require fee at least ${nFeeSize} but you sent less than fee!`);
+
+                } else {
+                    nMaxFee = Number.MAX_SAFE_INTEGER;
                 }
 
-                let totalSent = 0;
-                let contract;
+                const nOutputInxStart = isContract ? 1 : 0;
+                const totalSent = this._app.processPayments(tx, patchThisTx, nOutputInxStart);
+                if (!isGenesis) nMaxFee = totalHas - totalSent;
+
+                let nRemainingCoins = nMaxFee - (isContract ? tx.getContractSentAmount() : 0);
+
+                assert(isGenesis || nRemainingCoins > nFeeSize,
+                    `Require fee at least ${nFeeSize} but you sent less than fee!`
+                );
 
                 // TODO: move it to per output processing. So we could use multiple contract invocation in one TX
                 //  it's useful for mass payments, where some of addresses could be contracts!
-                if (tx.isContractCreation() ||
-                    (contract = await this._getContractByAddr(tx.getContractAddr(), patchForBlock))) {
+                if (isContract) {
 
                     // process contract creation/invocation
                     fee = await this._processContract(
@@ -1069,20 +1080,10 @@ module.exports = (factory, factoryOptions) => {
                         nRemainingCoins,
                         nFeeSize
                     );
-                    const receipt = patchThisTx.getReceipt(tx.getHash());
-                    if (!receipt || !receipt.isSuccessful()) {
-                        throw new Error(`Tx ${tx.hash()} contract invocation failed`);
-                    }
                 } else {
 
-                    // regular payment
-                    totalSent = this._app.processPayments(tx, patchThisTx);
-                    if (!isGenesis) {
-                        fee = totalHas - totalSent;
-                        if (fee < 0 || fee < nFeeSize) {
-                            throw new Error(`Tx ${tx.hash()} fee ${fee} too small! Expected ${nFeeSize}`);
-                        }
-                    }
+                    // use all coins for money transfer
+                    fee = isGenesis ? 0 : nRemainingCoins;
                 }
             } finally {
                 this._mutex.release(lock);
@@ -1157,15 +1158,18 @@ module.exports = (factory, factoryOptions) => {
          * @param {Transaction} tx
          * @param {PatchDB} patchThisTx
          * @param {PatchDB} patchForBlock - used for nested contracts
-         * @param {Number} nCoinsIn - sum of all inputs coins
-         * @param {Number} nFeeSize - fee for TX size (for nested contracts ==0)
-         * @returns {Promise<number>}
+         * @param {Number} nMaxCoins - allowed coins for contract exec
+         * @param {Number} nFeeSize - fee for TX size, we'll add it here, since TxReceipt will contain sum of all fees
+         * @returns {Promise<number>} - fee
          * @private
          */
-        async _processContract(isGenesis, contract, tx, patchThisTx, patchForBlock, nCoinsIn, nFeeSize = 0) {
-            let fee = 0;
-
-            const nFeeStorage = await this._getFeeStorage(tx, isGenesis);
+        async _processContract(isGenesis, contract, tx, patchThisTx, patchForBlock, nMaxCoins, nFeeSize) {
+            typeforce(
+                typeforce.tuple(
+                    typeforce.Boolean, typeforce.oneOf(types.Contract, undefined),
+                    types.Transaction, types.Patch,
+                    types.Patch, typeforce.Number, typeforce.Number
+                ), arguments);
 
             // contract creation/invocation has 2 types of change:
             // 1st - usual for UTXO just send exceeded coins to self
@@ -1188,77 +1192,88 @@ module.exports = (factory, factoryOptions) => {
                 } : {}
             };
 
-            // get max contract fee
-            let coinsLimit;
-            if (!isGenesis) {
-                const totalSent = this._app.processPayments(tx, patchThisTx, 1);
-                coinsLimit = nCoinsIn - totalSent;
-            } else {
-                coinsLimit = Number.MAX_SAFE_INTEGER;
-            }
+            const nFeeStorage = await this._getFeeStorage(tx, isGenesis);
+            const nFeeContractCreation = await this._getFeeContractCreation(tx, isGenesis);
+            const nFeeContractInvocation = await this._getFeeContractInvocatoin(tx, isGenesis);
 
-            if (!contract) {
+            const coinsLimit = nMaxCoins - nFeeSize;
 
-                const nFeeContractCreation = await this._getFeeContractCreation(tx, isGenesis);
-                if (coinsLimit < nFeeContractCreation) {
-                    throw new Error(
-                        `Tx ${tx.hash()} fee ${coinsLimit} for contract creation less than ${nFeeContractCreation}!`);
-                }
+            let status;
+            let message;
+            let bNewContract;
 
-                // contract creation
-                // address creation should be deterministic (same for all nodes!)
-                const addr = environment.contractAddr = Crypto.getAddress(tx.hash());
-
-                // prevent contract collision
-                if (await this._storage.getContract(Buffer.from(addr, 'hex'))) {
-                    throw new Error('Contract already exists');
-                }
-
-                ({receipt, contract} =
-                    await this._app.createContract(
-                        coinsLimit,
-                        tx.getContractCode(),
-                        environment,
-                        {nFeeContractCreation, nFeeSize, nFeeStorage}
-                    ));
-            } else {
-
-                const nFeeContractInvocation = await this._getFeeContractInvocatoin(tx, isGenesis);
-                if (coinsLimit < nFeeContractInvocation) {
-                    throw new Error(
-                        `Tx ${tx.hash()} fee ${coinsLimit} for contract invocation less than ${nFeeContractInvocation}!`);
-                }
-
-                // contract invocation
-                assert(
-                    contract.getConciliumId() === tx.conciliumId,
-                    `TX conciliumId: "${tx.conciliumId}" != contract conciliumId`
-                );
-
-                const invocationCode = tx.getContractCode();
-
-                environment.contractAddr = contract.getStoredAddress();
-                environment.balance = contract.getBalance();
-
-                receipt = await this._app.runContract(
-                    coinsLimit,
-                    invocationCode && invocationCode.length ? JSON.parse(tx.getContractCode()) : {},
-                    contract,
-                    environment,
-                    undefined,
-                    this._createCallbacksForApp(contract, patchForBlock, patchThisTx, tx.hash()),
-                    {
-                        nFeeContractInvocation,
-                        nFeeSize,
-                        nFeeStorage
+            try {
+                if (!contract) {
+                    if (coinsLimit < nFeeContractCreation) {
+                        throw new Error(
+                            `Tx ${tx.hash()} fee ${coinsLimit} for contract creation less than ${nFeeContractCreation}!`);
                     }
-                );
+
+                    // contract creation
+                    // address creation should be deterministic (same for all nodes!)
+                    const addr = environment.contractAddr = Crypto.getAddress(tx.hash());
+
+                    // prevent contract collision
+                    if (await this._storage.getContract(Buffer.from(addr, 'hex'))) {
+                        throw new Error('Contract already exists');
+                    }
+
+                    this._app.setupVariables({
+                        objFees: {nFeeContractCreation, nFeeContractInvocation},
+                        coinsLimit
+                    });
+                    contract = await this._app.createContract(tx.getContractCode(), environment);
+                    bNewContract = true;
+                } else {
+                    if (coinsLimit < nFeeContractInvocation) {
+                        throw new Error(
+                            `Tx ${tx.hash()} fee ${coinsLimit} for contract invocation less than ${nFeeContractInvocation}!`);
+                    }
+
+                    // contract invocation
+                    assert(
+                        contract.getConciliumId() === tx.conciliumId,
+                        `TX conciliumId: "${tx.conciliumId}" != contract conciliumId`
+                    );
+
+                    const invocationCode = tx.getContractCode();
+
+                    environment.contractAddr = contract.getStoredAddress();
+                    environment.balance = contract.getBalance();
+
+                    this._app.setupVariables({
+                        objFees: {nFeeContractCreation, nFeeContractInvocation},
+                        coinsLimit,
+                        objCallbacks: this._createCallbacksForApp(patchForBlock, patchThisTx, tx.hash())
+                    });
+
+                    await this._app.runContract(
+                        invocationCode && invocationCode.length ? JSON.parse(tx.getContractCode()) : {},
+                        contract,
+                        environment
+                    );
+                }
+
+                status = Constants.TX_STATUS_OK;
+            } catch (err) {
+                logger.error('Error in contract!', err);
+                status = Constants.TX_STATUS_FAILED;
+                message = err.message ? err.message : err.toString();
             }
+
+            receipt = new TxReceipt({
+                coinsUsed: this._app.coinsSpent() + nFeeSize + this._app.getDataDelta() * nFeeStorage,
+                contractAddress: bNewContract ? Buffer.from(contract.getStoredAddress(), 'hex') : undefined,
+                status,
+                message
+            });
+
             patchThisTx.setReceipt(tx.hash(), receipt);
+            let fee = 0;
 
             // send change (not for Genesis)
             if (!isGenesis) {
-                fee = this._createContractChange(tx, coinsLimit, patchThisTx, contract, receipt);
+                fee = this._createContractChange(tx, nMaxCoins, patchThisTx, contract, receipt);
             }
 
             // contract could throw, so it could be undefined
@@ -1277,31 +1292,42 @@ module.exports = (factory, factoryOptions) => {
         /**
          * Used only for contract invocation
          *
-         * @param contract
          * @param patchBlock
          * @param patchTx
          * @param strTxHash
          * @returns {createInternalTx, invokeContract}
          * @private
          */
-        _createCallbacksForApp(contract, patchBlock, patchTx, strTxHash) {
+        _createCallbacksForApp(patchBlock, patchTx, strTxHash) {
+            typeforce(
+                typeforce.tuple(types.Patch, types.Patch, types.Str64),
+                arguments
+            );
+
             return {
-                createInternalTx: this._sendCoins.bind(this, patchTx, strTxHash),
-                invokeContract: this._invokeNestedContract.bind(this, contract, patchBlock, patchTx, strTxHash)
+                sendCoins: this._sendCoins.bind(this, patchTx, strTxHash),
+                invokeContract: this._invokeNestedContract.bind(this, patchBlock, patchTx, strTxHash)
             };
         }
 
         /**
          * Send coins from contract
+         * Balance & remainingCoins managed by app.runContract.send
          *
-         * @param {Patch} patchTx
-         * @param {String} strTxHash
+         * @param {Patch} patchTx - this parameter bound in this._createCallbacksForApp
+         * @param {String} strTxHash - this parameter bound in this._createCallbacksForApp
          * @param {String} strAddress
          * @param {Number} amount
+         * @param {Contract} contract - this parameter bound in this._createCallbacksForApp
          * @private
          */
-        _sendCoins(patchTx, strTxHash, strAddress, amount) {
-            typeforce(typeforce.tuple(types.Patch, types.Str64, types.Address, typeforce.Number), arguments);
+        _sendCoins(patchTx, strTxHash, strAddress, amount, contract) {
+            typeforce(typeforce.tuple(
+                types.Patch, types.Str64, types.Address, typeforce.Number, types.Contract),
+                arguments
+            );
+
+            if (contract.getBalance() < amount) throw new Error('Not enough funds for "send"');
 
             if (amount === 0) return;
             const internalUtxo = this._createInternalTx(patchTx, strAddress, amount, strTxHash);
@@ -1310,11 +1336,24 @@ module.exports = (factory, factoryOptions) => {
             const receipt = new TxReceipt({status: Constants.TX_STATUS_OK});
             receipt.addInternalUtxo(internalUtxo);
             patchTx.setReceipt(strTxHash, receipt);
+
+            contract.withdraw(amount);
         }
 
-        async _invokeNestedContract(contract, patchBlock, patchTx, strTxHash, strAddress, objParams) {
+        /**
+         *
+         * @param {PatchDB} patchBlock - this parameter bound in this._createCallbacksForApp
+         * @param {PatchDB} patchTx - this parameter bound in this._createCallbacksForApp
+         * @param {String} strTxHash - this parameter bound in this._createCallbacksForApp
+         * @param {String} strAddress - contract address to call
+         * @param {Object} objParams - {method, arrArguments, context, coinsLimit, environment, objFees}
+         * @param {Contract} contract - this parameter bound in this._createCallbacksForApp
+         * @returns {Promise<{success: *, fee: *}>}
+         * @private
+         */
+        async _invokeNestedContract(patchBlock, patchTx, strTxHash, strAddress, objParams, contract) {
             typeforce(
-                typeforce.tuple(types.Contract, types.Patch, types.Patch, types.Str64, types.Address, typeforce.Object),
+                typeforce.tuple(types.Patch, types.Patch, types.Str64, types.Address, typeforce.Object, types.Contract),
                 arguments
             );
 
@@ -1335,21 +1374,17 @@ module.exports = (factory, factoryOptions) => {
                 contractAddr: cNestedContract.getStoredAddress(),
                 balance: cNestedContract.getBalance()
             };
-            const receipt = await this._app.runContract(
-                coinsLimit,
+
+            const result = await this._app.runContract(
                 {method, arrArguments},
                 cNestedContract,
                 newEnv,
-                context,
-                this._createCallbacksForApp(cNestedContract, patchBlock, patchTx, strTxHash),
-                objFees
+                context
             );
 
-            if (receipt.isSuccessful()) {
-                patchTx.setReceipt(strTxHash, receipt);
-                patchTx.setContract(cNestedContract);
-            }
-            return {success: receipt.isSuccessful(), fee: receipt.getCoinsUsed()};
+            patchTx.setContract(cNestedContract);
+
+            return result;
         }
 
         /**
@@ -1724,11 +1759,16 @@ module.exports = (factory, factoryOptions) => {
         }
 
         async _blockInFlight(block, bOnlyDag = false) {
-            debugNode(`Block "${block.getHash()}" stored`);
+            const lock = await this._mutex.acquire(['blockStore']);
+            try {
+                debugNode(`Block "${block.getHash()}" stored`);
 
-            const blockInfo = new BlockInfo(block.header);
-            blockInfo.markAsInFlight();
-            await this._storeBlockAndInfo(block, blockInfo, bOnlyDag);
+                const blockInfo = new BlockInfo(block.header);
+                blockInfo.markAsInFlight();
+                await this._storeBlockAndInfo(block, blockInfo, bOnlyDag);
+            } finally {
+                this._mutex.release(lock);
+            }
         }
 
         _isBlockExecuted(hash) {
@@ -1865,17 +1905,17 @@ module.exports = (factory, factoryOptions) => {
          * @private
          */
         _createContractChange(tx, maxFee, patch, contract, receipt) {
+            let fee = receipt.getCoinsUsed();
+
+            assert(maxFee - fee >= 0, '_createContractChange. We spent more than have!');
 
             // no changeReceiver? ok - no change. all coins become goes to witness!
             const addrChangeReceiver = tx.getContractChangeReceiver();
-            if (!addrChangeReceiver || !addrChangeReceiver.length) return maxFee;
-
-            let fee = maxFee;
-            assert(maxFee >= fee, 'We spent more than have!');
+            if (!addrChangeReceiver || !addrChangeReceiver.length) return maxFee - fee;
 
             if (Buffer.isBuffer(addrChangeReceiver)) {
-                fee = receipt.getCoinsUsed();
 
+                // something left? let's create change
                 if (maxFee - fee !== 0) {
                     const changeUtxo = this._createInternalTx(
                         patch,
@@ -2038,7 +2078,7 @@ module.exports = (factory, factoryOptions) => {
 
             debugBlock(`Executing block "${block.getHash()}"`);
 
-            const lock = await this._mutex.acquire(['blockExec']);
+            const lock = await this._mutex.acquire(['blockStore', 'blockExec']);
             this._processedBlock = block;
             try {
                 const patchState = await this._execBlock(block);
@@ -2196,12 +2236,13 @@ module.exports = (factory, factoryOptions) => {
             completed = completed !== undefined;
 
             let contract = await this._storage.getContract(contractAddress);
-            if (!contract) throw new Error(`Contract ${contractAddress} not found`);
 
             if (!completed) {
                 const pendingContract = this._pendingBlocks.getContract(contractAddress, contract.getConciliumId());
                 if (pendingContract) contract = pendingContract;
             }
+
+            if (!contract) throw new Error(`Contract ${contractAddress} not found`);
 
             const newEnv = {
                 contractAddr: contract.getStoredAddress(),
