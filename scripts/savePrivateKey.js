@@ -23,13 +23,16 @@ const {questionAsync, prepareForStringifyObject} = require('../utils');
         keyGenFunction === '' ? "scrypt" : keyGenFunction
     );
 
+    const kp = factory.Crypto.keyPairFromPrivate(pk);
+
     const objKeyFileContent = JSON.stringify({
+        address: 'Ux' + kp.address,
         ...prepareForStringifyObject(objEncryptedPk),
-        version: 1
+        version: 1.1
     });
 
     console.error(objKeyFileContent);
-    if (filename && filename.length) fs.writeFileSync(filename, JobjKeyFileContent);
+    if (filename && filename.length) fs.writeFileSync(filename, objKeyFileContent);
 
 })().then(() => {
     process.exit(0);
