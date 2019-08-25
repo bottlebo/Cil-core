@@ -15,7 +15,7 @@ module.exports = {
         strIdent: 'Prod',
 
         network: 0x12882304,
-        protocolVersion: 0x0126,
+        protocolVersion: 0x0127,
         port: 8223,
 
         rpcPort: 8222,
@@ -104,7 +104,7 @@ module.exports = {
         TOLERATED_TIME_DIFF: 60 * 60 * 1000,
 
         // how much we suppress creating empty blocks
-        WITNESS_HOLDOFF: 15 * 60 * 1000,
+        WITNESS_HOLDOFF: 2 * 60 * 1000,
         MAX_BLOCK_SIZE: 1024 * 1024,
 
         // fees

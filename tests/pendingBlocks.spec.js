@@ -10,15 +10,43 @@ const factory = require('./testFactory');
 const {pseudoRandomBuffer, createDummyBlock, createNonMergeablePatch, generateAddress} = require('./testUtil');
 const {arrayEquals} = require('../utils');
 
+const createNonEmptyBlock = (nConciliumId) => {
+    const block = createDummyBlock(factory, nConciliumId);
+    block.isEmpty = () => false;
+    return block;
+};
+
+const createRhombus = (pbm, bNonEmpty = false) => {
+    const createBlockFunction = bNonEmpty ? createNonEmptyBlock : createDummyBlock.bind(createDummyBlock, factory);
+
+    const block1 = createBlockFunction(1);
+    const block2 = createBlockFunction(2);
+    const block3 = createBlockFunction(3);
+    const block4 = createBlockFunction(4);
+
+    const patch = new factory.PatchDB();
+
+    block2.parentHashes = [block1.getHash()];
+    block3.parentHashes = [block1.getHash()];
+    block4.parentHashes = [block2.getHash(), block3.getHash()];
+
+    pbm.addBlock(block1, patch);
+    pbm.addBlock(block2, patch);
+    pbm.addBlock(block3, patch);
+    pbm.addBlock(block4, patch);
+
+    return block4;
+};
+
 /**
  * Duplicate block, but change conciliumId & change tx
  */
-const makeDoubleSpend = (block, newWitnessId) => {
-    const newBlock = new factory.Block(newWitnessId);
+const makeDoubleSpend = (block, newConciliumId) => {
+    const newBlock = new factory.Block(newConciliumId);
 
     // first is coinbase
     const tx = new factory.Transaction(block.txns[1]);
-    tx.conciliumId = newWitnessId;
+    tx.conciliumId = newConciliumId;
     newBlock.addTx(tx);
     newBlock.finish(factory.Constants.fees.TX_FEE, generateAddress());
     return newBlock;
@@ -122,7 +150,7 @@ describe('Pending block manager', async () => {
         pbm.addBlock(block2, new factory.PatchDB(1));
         pbm.addBlock(block3, new factory.PatchDB(2));
 
-        const {arrParents} = await pbm.getBestParents();
+        const {arrParents} = pbm.getBestParents();
         assert.isOk(arrParents.length, 3);
         assert.isOk(arrayEquals(arrParents, [block1.getHash(), block2.getHash(), block3.getHash()]));
     });
@@ -139,7 +167,7 @@ describe('Pending block manager', async () => {
         pbm.addBlock(block1, new factory.PatchDB(0));
         pbm.addBlock(block2, patch);
 
-        const {arrParents} = await pbm.getBestParents();
+        const {arrParents} = pbm.getBestParents();
         assert.isOk(arrParents.length, 1);
         assert.isOk(arrayEquals(arrParents, [block1.getHash()]));
     });
@@ -160,7 +188,7 @@ describe('Pending block manager', async () => {
         pbm.addBlock(block2, patch);
         pbm.addBlock(block3, new factory.PatchDB(0));
 
-        const {arrParents} = await pbm.getBestParents();
+        const {arrParents} = pbm.getBestParents();
         assert.isOk(arrParents.length, 1);
         assert.isOk(arrayEquals(arrParents, [block3.getHash()]));
     });
@@ -176,7 +204,7 @@ describe('Pending block manager', async () => {
             const block = createDummyBlock(factory, i, i + 1);
             pbm.addBlock(block, patch);
         }
-        await pbm.getBestParents();
+        pbm.getBestParents();
         assert.isOk(patch.merge.callCount === 10);
     });
 
@@ -203,12 +231,127 @@ describe('Pending block manager', async () => {
         pbm.addBlock(block3, patch);
         pbm.addBlock(block4, patch);
 
-        const {arrParents} = await pbm.getBestParents();
+        const {arrParents} = pbm.getBestParents();
 
         assert.isOk(arrParents.length === 2);
 
         // 'hash1' - conflicts
         assert.isOk(arrayEquals(arrParents, [block3.getHash(), block4.getHash()]));
+    });
+
+    describe('isReasonToWitness', async () => {
+        let pbm;
+        beforeEach(async () => {
+            pbm = new factory.PendingBlocksManager();
+        });
+
+        it('should be NO reason for empty PBM', async () => {
+            factory.Constants.GENESIS_BLOCK = pseudoRandomBuffer().toString('hex');
+            const block = createDummyBlock(factory, 0);
+
+            assert.isNotOk(pbm.isReasonToWitness(block));
+        });
+
+        it('should be a reason for single tip of other concilium', async () => {
+            const block = createNonEmptyBlock(1);
+            pbm.addBlock(block, new factory.PatchDB());
+            const blockChild = createNonEmptyBlock(0);
+            blockChild.parentHashes = [block.getHash()];
+
+            assert.isOk(pbm.isReasonToWitness(blockChild));
+        });
+
+        it('should be NO reason for single non-empty tip of same concilium', async () => {
+            const block = createNonEmptyBlock(1);
+            pbm.addBlock(block, new factory.PatchDB());
+            const blockChild = createNonEmptyBlock(1);
+            blockChild.parentHashes = [block.getHash()];
+
+            assert.isNotOk(pbm.isReasonToWitness(blockChild));
+        });
+
+        it('should be NO reason for 2 empty tips', async () => {
+            const block1 = createDummyBlock(factory, 1);
+            const block2 = createDummyBlock(factory, 2);
+            pbm.addBlock(block1, new factory.PatchDB());
+            pbm.addBlock(block2, new factory.PatchDB());
+
+            {
+                const blockChild = createNonEmptyBlock(1);
+                blockChild.parentHashes = [block1.getHash(), block2.getHash()];
+                assert.isNotOk(pbm.isReasonToWitness(blockChild));
+            }
+            {
+                const blockChild = createNonEmptyBlock(2);
+                blockChild.parentHashes = [block1.getHash(), block2.getHash()];
+                assert.isNotOk(pbm.isReasonToWitness(blockChild));
+            }
+        });
+
+        it('should be reason for 2 non-empty tips', async () => {
+            const block1 = createNonEmptyBlock(1);
+            const block2 = createNonEmptyBlock(2);
+            pbm.addBlock(block1, new factory.PatchDB());
+            pbm.addBlock(block2, new factory.PatchDB());
+
+            {
+                const blockChild = createNonEmptyBlock(1);
+                blockChild.parentHashes = [block1.getHash(), block2.getHash()];
+                assert.isOk(pbm.isReasonToWitness(blockChild));
+            }
+            {
+                const blockChild = createNonEmptyBlock(2);
+                blockChild.parentHashes = [block1.getHash(), block2.getHash()];
+                assert.isOk(pbm.isReasonToWitness(blockChild));
+            }
+        });
+
+        it('should be NO reason for rhombus (existed inside rhombus)', async () => {
+            const blockTip = createRhombus(pbm);
+            assert.isNotOk(pbm.isReasonToWitness(blockTip));
+        });
+
+        it('should be NO reason for rhombus (not existed inside rhombus, but empty blocks)', async () => {
+            const blockTip = createRhombus(pbm);
+            const block = createNonEmptyBlock(0);
+            block.parentHashes = [blockTip.getHash()];
+
+            assert.isNotOk(pbm.isReasonToWitness(block));
+        });
+
+        it('should be a reason for rhombus (new concilium and non empty blocks)', async () => {
+            const blockTip = createRhombus(pbm, true);
+            const block = createNonEmptyBlock(0);
+            block.parentHashes = [blockTip.getHash()];
+
+            assert.isOk(pbm.isReasonToWitness(block));
+        });
+
+        it('should be a reason for rhombus (existed inside rhombus of empty blocks, but has single non empty tip)',
+            async () => {
+                const blockTip1 = createRhombus(pbm);
+                const blockTip2 = createNonEmptyBlock(0);
+                pbm.addBlock(blockTip2, new factory.PatchDB());
+
+                const block = createNonEmptyBlock(2);
+                block.parentHashes = [blockTip1.getHash(), blockTip2.getHash()];
+
+                assert.isOk(pbm.isReasonToWitness(block));
+            }
+        );
+
+        it('should be a reason for rhombus (existed inside rhombus of non-empty blocks, but has single yet empty tip)',
+            async () => {
+                const blockTip1 = createRhombus(pbm, true);
+                const blockTip2 = createDummyBlock(factory, 0);
+                pbm.addBlock(blockTip2, new factory.PatchDB());
+
+                const block = createNonEmptyBlock(2);
+                block.parentHashes = [blockTip1.getHash(), blockTip2.getHash()];
+
+                assert.isOk(pbm.isReasonToWitness(block));
+            }
+        );
     });
 
     describe('FINALITY', async () => {
@@ -301,7 +444,7 @@ describe('Pending block manager', async () => {
 
             let block5;
             {
-                const {arrParents} = await pbm.getBestParents();
+                const {arrParents} = pbm.getBestParents();
 
                 // block 3 (or 2) will fail to merge
                 assert.equal(arrParents.length, 1);
@@ -313,7 +456,7 @@ describe('Pending block manager', async () => {
 
             let block6;
             {
-                const {arrParents} = await pbm.getBestParents();
+                const {arrParents} = pbm.getBestParents();
                 assert.equal(arrParents.length, 1);
 
                 block6 = createDummyBlock(factory, 1);
@@ -352,7 +495,7 @@ describe('Pending block manager', async () => {
             // from now test not connected to page "rejected block consensus"
             const block8 = createDummyBlock(factory, 1);
             {
-                const {arrParents} = await pbm.getBestParents();
+                const {arrParents} = pbm.getBestParents();
                 assert.equal(arrParents.length, 2);
 
                 // chain through 7->1 and through 6 have same witness numbers (1) but first chain is longer
