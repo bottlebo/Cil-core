@@ -45,7 +45,10 @@ module.exports = (factory) => {
             for (let strHash of block.parentHashes) {
                 if (this._dag.hasVertex(strHash)) this._dag.add(block.getHash(), strHash);
             }
-            this._dag.saveObj(block.getHash(), {patch: patchState, blockHeader: block.header});
+            this._dag.saveObj(
+                block.getHash(),
+                {patch: patchState, blockHeader: block.header, bIsEmpty: block.isEmpty()}
+            );
         }
 
         /**
@@ -98,14 +101,14 @@ module.exports = (factory) => {
         /**
          * It will check "compatibility" of tips (ability to merge patches)
          *
-         * @returns {arrParents}
+         * @returns {{arrParents, patchMerged}}
          * @private
          */
-        async getBestParents() {
+        getBestParents() {
             let arrTips = this.getTips();
 
-            if (!arrTips.length) arrTips = this._topStable;
-            if (!arrTips.length) arrTips = [Constants.GENESIS_BLOCK];
+            if (!arrTips || !arrTips.length) arrTips = this._topStable;
+            if (!arrTips || !arrTips.length) arrTips = [Constants.GENESIS_BLOCK];
 
             // TODO: consider using process.nextTick() (this could be time consuming)
             // @see https://nodejs.org/en/docs/guides/event-loop-timers-and-nexttick/
@@ -118,6 +121,7 @@ module.exports = (factory) => {
 
             // TODO: review it
             if (!arrParents.length) logger.debug('No pending parents found, using stable tips!');
+
             return {
                 arrParents: arrParents.length ? arrParents : arrTips,
                 patchMerged
@@ -385,6 +389,38 @@ module.exports = (factory) => {
             }
 
             return undefined;
+        }
+
+        /**
+         * is there a reason to create a block of "nConciliumId" upon bestParents
+         *
+         * the reason is if we have at least one tip that has no blocks of "nConciliumId" in every path
+         * from this "tip" to stable blocks
+         * and there is at least one non-empty blocks
+         *
+         * @param {Block} block - that we look a reason to process
+         * @returns {Boolean}
+         */
+        isReasonToWitness(block) {
+
+            // we are interested only in pending parents!
+            const arrParents = block.parentHashes.filter(strHash => this._dag.hasVertex(strHash));
+
+            // we need non-empty blocks
+            let bFoundNonEmptyBlock = false;
+
+            return !arrParents.every(hash => {
+                const arrPaths = this._dag.findPathsDown(hash);
+                let bConciliumFound = false;
+                for (let path of arrPaths) {
+                    for (let vertex of path) {
+                        const {blockHeader, bIsEmpty} = this._dag.readObj(vertex);
+                        if (blockHeader.conciliumId === block.conciliumId) bConciliumFound = true;
+                        bFoundNonEmptyBlock |= !bIsEmpty;
+                    }
+                }
+                return bConciliumFound;
+            }) && bFoundNonEmptyBlock;
         }
     };
 };
