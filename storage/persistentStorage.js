@@ -421,7 +421,7 @@ module.exports = (factory, factoryOptions) => {
         async applyPatch(statePatch) {
             const arrUtxos = [];
             const arrDelUtxo = [];
-
+            const arrContract = []
             const arrOps = [];
             const lock = await this._mutex.acquire(['utxo', 'contract', 'receipt', 'conciliums']);
             try {
@@ -456,8 +456,11 @@ module.exports = (factory, factoryOptions) => {
                     }
                     const key = this.constructor.createKey(CONTRACT_PREFIX, Buffer.from(strContractAddr, 'hex'));
                     arrOps.push({type: 'put', key, value: contract.encode()});
+                    arrContract.push({strContractAddr, contract});
                 }
-
+                if (this._api) {
+                    await this._api.saveContracts(arrContract);
+                }
                 // save contract receipt
                 // because we use receipts only for contracts, i decided to keep single txReceipts instead of array of receipts
                 // for whole block
