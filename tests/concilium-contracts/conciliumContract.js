@@ -31,6 +31,8 @@ class Base {
 module.exports = class ContractConciliums extends Base {
     constructor(objInitialConcilium, nFeeCreate) {
         super();
+
+        // remove everything below for proxy!
         this._arrConciliums = [];
         if (!objInitialConcilium) throw('Specify initial objInitialConcilium');
 
@@ -56,14 +58,22 @@ module.exports = class ContractConciliums extends Base {
         this._arrConciliums.push({
             ...objConcilium,
             conciliumId: this._arrConciliums.length,
-            conciliumCreationTx: contractTx
+            conciliumCreationTx: contractTx,
+            parameterTXNs: []
         });
     }
 
     async joinConcilium(conciliumId) {
+
+        // remove for proxy contract!
         if (this._proxyAddress) {
             return await delegatecall(this._proxyAddress, {method: "joinConcilium", arrArguments: [conciliumId]});
         }
+
+        conciliumId = parseInt(conciliumId);
+
+        // this will also include failure to join conciliumId 0. it's ok!
+        if (!conciliumId) throw ('Invalid concilium');
 
         const objConcilium = this._checkConciliumId(conciliumId);
 
@@ -79,6 +89,8 @@ module.exports = class ContractConciliums extends Base {
     }
 
     async leaveConcilium(conciliumId) {
+
+        // remove for proxy contract!
         if (this._proxyAddress) {
             return await delegatecall(this._proxyAddress, {method: "leaveConcilium", arrArguments: [conciliumId]});
         }
@@ -107,7 +119,7 @@ module.exports = class ContractConciliums extends Base {
 
         if (objConcilium.isOpen) throw ('This concilium is open, just join it');
 
-        //        if (objConcilium.type === ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_RR}) {
+//        if (objConcilium.type !== ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_RR}) {
         if (objConcilium.type !== factory.BaseConciliumDefinition.CONCILIUM_TYPE_RR) {
             throw ('this method only for CONCILIUM_TYPE_RR');
         }
@@ -134,12 +146,12 @@ module.exports = class ContractConciliums extends Base {
 
         const objConcilium = this._checkConciliumId(conciliumId);
 
-        //        if (objConcilium.type === ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS}) {
+//        if (objConcilium.type !== ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS}) {
         if (objConcilium.type !== factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS) {
             throw ('this method only for CONCILIUM_TYPE_POS');
         }
 
-        return this._getPosHieghtToRelease(objConcilium, callerAddress);
+        return this._getPosHeightToRelease(objConcilium, callerAddress);
     }
 
     async changeConciliumParameters(conciliumId, objNewParameters) {
@@ -148,7 +160,9 @@ module.exports = class ContractConciliums extends Base {
                 {method: "changeConciliumParameters", arrArguments: [conciliumId, objNewParameters]}
             );
         }
+
         const objConcilium = this._checkConciliumId(conciliumId);
+        this._checkCreator(objConcilium, callerAddress);
 
 //        if (objConcilium.type === ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS}) {
         if (objConcilium.type === factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS) {
@@ -158,7 +172,14 @@ module.exports = class ContractConciliums extends Base {
             if (!this._rrConciliumMemberExists(objConcilium, callerAddress)) throw ('Unauthorized call');
         }
 
-        objConcilium.parameters = Object.assign({}, objConcilium.parameters, objNewParameters);
+        const oldFees = objConcilium.parameters && objConcilium.parameters.fees ? objConcilium.parameters.fees : {};
+        objConcilium.parameters.fees = {...oldFees, ...objNewParameters.fees};
+        objConcilium.parameters.isEnabled = objNewParameters.isEnabled || objConcilium.parameters.isEnabled;
+
+        objConcilium.parameters.document = objNewParameters.document || objConcilium.parameters.document;
+
+        if (!Array.isArray(objConcilium.parameterTXNs)) objConcilium.parameterTXNs = [];
+        objConcilium.parameterTXNs.push(contractTx);
     }
 
     // PoS concilium
@@ -175,7 +196,7 @@ module.exports = class ContractConciliums extends Base {
         objConcilium.arrMembers.push({
             address: callerAddress,
             amount: value,
-//            nHeightToRelease: block.height +${factory.Constants.concilium.HEIGHT_TO_RELEASE_ADD_ON}
+//            nHeightToRelease: block.height + ${factory.Constants.concilium.HEIGHT_TO_RELEASE_ADD_ON}
             nHeightToRelease: block.height + factory.Constants.concilium.HEIGHT_TO_RELEASE_ADD_ON
         });
     }
@@ -197,7 +218,7 @@ module.exports = class ContractConciliums extends Base {
         }
     }
 
-    _getPosHieghtToRelease(objConcilium, callerAddress) {
+    _getPosHeightToRelease(objConcilium, callerAddress) {
         const idx = objConcilium.arrMembers.findIndex(member => member.address === callerAddress);
         if (!~idx) throw ('You aren\'t member');
 
