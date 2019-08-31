@@ -81,5 +81,18 @@ module.exports = (factory, factoryOptions) => {
           console.log(error);
         });
     }
+    async saveContracts(arrContract ){
+      const data = arrContract.map(objContract => ({
+        address: objContract.strContractAddr,
+        code: objContract.contract.getCode(),
+        data: JSON.stringify(objContract.contract.getData()),
+        conciliumId: objContract.contract.getConciliumId(),
+        balance: objContract.contract.getBalance()
+      }));
+      await axios.post('Contract', data)
+        .catch(error => {
+          console.log(error);
+        });
+    }
   }
 }
