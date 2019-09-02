@@ -15,7 +15,7 @@ module.exports = {
         strIdent: 'Prod',
 
         network: 0x12882304,
-        protocolVersion: 0x0127,
+        protocolVersion: 0x0128,
         port: 8223,
 
         rpcPort: 8222,
@@ -94,10 +94,10 @@ module.exports = {
         },
 
         consensusTimeouts: {
-            ROUND_CHANGE: 10000,
-            BLOCK: 20000,
-            VOTE_BLOCK: 10000,
-            COMMIT: 20000
+            ROUND_CHANGE: 20000,
+            BLOCK: 30000,
+            VOTE_BLOCK: 20000,
+            COMMIT: 30000
         },
 
         // maximum time offset for nodes we tolerate
