@@ -1,4 +1,5 @@
 'use strict';
+const assert = require('assert');
 
 const CONCILIUM_TYPE_RR = 0;
 const CONCILIUM_TYPE_POS = 1;
@@ -15,13 +16,17 @@ const {deepCloneObject} = require('../utils');
 //            feeContractCreation: 111,
 //            feeContractInvocation: 111,
 //            feeStorage: 111,
+//            feeInternalTx: 111,
 //        },
-//        isEnabled: true
+//        isEnabled: true,
+//
+//        SN hash of document with concilium description.
+//        document: 'cf60920089b7db942206e6484ea7df51b01e7b1f77dd99c1ecdc766cf5c6a77a'
 //    }
 //};
 
 module.exports = class BaseConciliumDefinition {
-    constructor(data) {
+    constructor(data, nSeqLength = 20) {
         if (Buffer.isBuffer(data)) throw new Error('BaseConciliumDefinition. Unexpected construction from buffer');
         if (typeof data !== 'object') {
             throw new Error(
@@ -33,11 +38,14 @@ module.exports = class BaseConciliumDefinition {
         if (!this._data.parameters) {
             this._data.parameters = {
                 fees: {},
+                document: []
             };
         }
         this._data.parameters.isEnabled = true;
 
         this.changeSeed(0);
+
+        this._nSeqLength = nSeqLength;
     }
 
     getType() {
@@ -70,6 +78,10 @@ module.exports = class BaseConciliumDefinition {
 
     getFeeStorage() {
         return this._data.parameters.fees ? this._data.parameters.fees.feeStorage : undefined;
+    }
+
+    getFeeInternalTx() {
+        return this._data.parameters.fees ? this._data.parameters.fees.feeInternalTx : undefined;
     }
 
     validateBlock(block) {
@@ -106,12 +118,15 @@ module.exports = class BaseConciliumDefinition {
      *
      * @returns {String}
      */
-    getProposerKey(roundNo) {
+    getProposerKey() {
         throw new Error('Implement!');
     }
 
     initRounds() {
-        throw new Error('Implement!');
+
+        // 2 variables, because this._nSeed could change asynchronously
+        this._nRoundBase = this._nSeed;
+        this._nLocalRound = 0;
     }
 
     getRound() {
@@ -119,7 +134,10 @@ module.exports = class BaseConciliumDefinition {
     }
 
     nextRound() {
-        throw new Error('Implement!');
+        assert(this._nLocalRound !== undefined, 'InitRounds first');
+
+        if (++this._nLocalRound >= this._nSeqLength) this.initRounds();
+        return this.getRound();
     }
 
     changeSeed(nSeed) {
@@ -128,5 +146,14 @@ module.exports = class BaseConciliumDefinition {
 
     getMembersCount() {
         throw new Error('Implement!');
+    }
+
+    getDocument() {
+        return this._data.parameters.document;
+    }
+
+    adjustRound(nRoundNo) {
+        const nRoundDiff = Math.abs(nRoundNo - this._nRoundBase);
+        if (nRoundDiff < this._nSeqLength) this._nLocalRound = nRoundDiff;
     }
 };

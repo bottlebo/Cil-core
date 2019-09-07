@@ -982,6 +982,7 @@ module.exports = (factory, factoryOptions) => {
                 // inform about new Tx
                 await this._informNeighbors(newTx);
             } catch (e) {
+                console.error(e);
                 throw new Error(`Tx is not accepted: ${e.message}`);
             }
         }
@@ -1116,7 +1117,7 @@ module.exports = (factory, factoryOptions) => {
             if (isGenesis) return 0;
 
             const witnessConcilium = await this._storage.getConciliumById(tx.conciliumId);
-            const nFeePerKb = witnessConcilium && witnessConcilium.getFeeTxSize() >= Constants.fees.TX_FEE
+            const nFeePerKb = witnessConcilium && witnessConcilium.getFeeTxSize()
                 ? witnessConcilium.getFeeTxSize() : Constants.fees.TX_FEE;
             const nKbytes = tx.getSize() / 1024;
 
@@ -1128,7 +1129,7 @@ module.exports = (factory, factoryOptions) => {
 
             const witnessConcilium = await this._storage.getConciliumById(tx.conciliumId);
 
-            return witnessConcilium && witnessConcilium.getFeeContractCreation() >= Constants.fees.CONTRACT_CREATION_FEE
+            return witnessConcilium && witnessConcilium.getFeeContractCreation()
                 ? witnessConcilium.getFeeContractCreation() : Constants.fees.CONTRACT_CREATION_FEE;
         }
 
@@ -1137,15 +1138,24 @@ module.exports = (factory, factoryOptions) => {
 
             const witnessConcilium = await this._storage.getConciliumById(tx.conciliumId);
             return witnessConcilium &&
-                   witnessConcilium.getFeeContractInvocation() >= Constants.fees.CONTRACT_INVOCATION_FEE
+                   witnessConcilium.getFeeContractInvocation()
                 ? witnessConcilium.getFeeContractInvocation() : Constants.fees.CONTRACT_INVOCATION_FEE;
+        }
+
+        async _getFeeInternalTx(tx, isGenesis = false) {
+            if (isGenesis) return 0;
+
+            const witnessConcilium = await this._storage.getConciliumById(tx.conciliumId);
+            return witnessConcilium &&
+                   witnessConcilium.getFeeInternalTx()
+                ? witnessConcilium.getFeeInternalTx() : Constants.fees.INTERNAL_TX_FEE;
         }
 
         async _getFeeStorage(tx, isGenesis = false) {
             if (isGenesis) return 0;
 
             const witnessConcilium = await this._storage.getConciliumById(tx.conciliumId);
-            return witnessConcilium && witnessConcilium.getFeeStorage() >= Constants.fees.STORAGE_PER_BYTE_FEE
+            return witnessConcilium && witnessConcilium.getFeeStorage()
                 ? witnessConcilium.getFeeStorage() : Constants.fees.STORAGE_PER_BYTE_FEE;
         }
 
@@ -1195,6 +1205,7 @@ module.exports = (factory, factoryOptions) => {
             const nFeeStorage = await this._getFeeStorage(tx, isGenesis);
             const nFeeContractCreation = await this._getFeeContractCreation(tx, isGenesis);
             const nFeeContractInvocation = await this._getFeeContractInvocatoin(tx, isGenesis);
+            const nFeeInternalTx = await this._getFeeInternalTx(tx, isGenesis);
 
             const coinsLimit = nMaxCoins - nFeeSize;
 
@@ -1219,7 +1230,7 @@ module.exports = (factory, factoryOptions) => {
                     }
 
                     this._app.setupVariables({
-                        objFees: {nFeeContractCreation, nFeeContractInvocation},
+                        objFees: {nFeeContractCreation, nFeeContractInvocation, nFeeInternalTx},
                         coinsLimit
                     });
                     contract = await this._app.createContract(tx.getContractCode(), environment);
@@ -1242,7 +1253,7 @@ module.exports = (factory, factoryOptions) => {
                     environment.balance = contract.getBalance();
 
                     this._app.setupVariables({
-                        objFees: {nFeeContractCreation, nFeeContractInvocation},
+                        objFees: {nFeeContractCreation, nFeeContractInvocation, nFeeInternalTx},
                         coinsLimit,
                         objCallbacks: this._createCallbacksForApp(patchForBlock, patchThisTx, tx.hash())
                     });
@@ -2251,14 +2262,18 @@ console.log(receipt.toObject())
                 balance: contract.getBalance()
             };
 
+            const nCoinsDummy = Number.MAX_SAFE_INTEGER;
+            this._app.setupVariables({
+                objFees: {nFeeContractInvocation: nCoinsDummy},
+                nCoinsDummy,
+                objCallbacks: this._createCallbacksForApp(new PatchDB(), new PatchDB(), '1'.repeat(64))
+            });
+
             return await this._app.runContract(
-                Number.MAX_SAFE_INTEGER,
                 {method, arrArguments},
                 contract,
                 newEnv,
                 undefined,
-                this._createCallbacksForApp(new Contract({}), new PatchDB(), new PatchDB(), Crypto.randomBytes(32)),
-                {},
                 true
             );
         }
