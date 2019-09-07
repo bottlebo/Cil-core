@@ -76,12 +76,12 @@ module.exports = (factory, factoryOptions) => {
         });
     }
     async deleteUtxos(arrHash) {
-      await axios.delete(`Utxo`, {data:arrHash})
+      await axios.delete(`Utxo`, {data: arrHash})
         .catch(error => {
           console.log(error);
         });
     }
-    async saveContracts(arrContract ){
+    async saveContracts(arrContract) {
       const data = arrContract.map(objContract => ({
         address: objContract.strContractAddr,
         code: objContract.contract.getCode(),
@@ -93,6 +93,28 @@ module.exports = (factory, factoryOptions) => {
         .catch(error => {
           console.log(error);
         });
+    }
+    async saveReceipts(arrReceipts) {
+      console.log('********************************')
+//console.log(arrReceipts)
+      const data = arrReceipts.map(obj => {
+        let objReceipt = obj.receipt.toObject();
+        console.log(objReceipt)
+        let from = obj.from;
+        return {
+          internalTxns: [...objReceipt.internalTxns],
+          coins: [...objReceipt.coins.map(coin => ({amount: coin.amount, receiverAddr: coin.receiverAddr.toString('hex')}))],
+          from: from,
+          status: 'internal'
+        }
+      });
+      console.log(data)
+      console.log('********************************')
+
+      // await axios.post('Receipt', data)
+      //   .catch(error => {
+      //     console.log(error);
+      //   });
     }
   }
 }
