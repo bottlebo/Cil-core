@@ -421,7 +421,8 @@ module.exports = (factory, factoryOptions) => {
         async applyPatch(statePatch) {
             const arrUtxos = [];
             const arrDelUtxo = [];
-            const arrContract = []
+            const arrContract = [];
+            const arrReceipt = [];
             const arrOps = [];
             const lock = await this._mutex.acquire(['utxo', 'contract', 'receipt', 'conciliums']);
             try {
@@ -458,7 +459,7 @@ module.exports = (factory, factoryOptions) => {
                     arrOps.push({type: 'put', key, value: contract.encode()});
                     arrContract.push({strContractAddr, contract});
                 }
-                if (this._api) {
+                if (this._api && arrContract.length) {
                     await this._api.saveContracts(arrContract);
                 }
                 // save contract receipt
@@ -471,8 +472,11 @@ module.exports = (factory, factoryOptions) => {
                     if (this._buildTxIndex) {
                         await this._storeInternalTxnsIndex(Buffer.from(strTxHash, 'hex'), receipt.getInternalTxns());
                     }
+                    arrReceipt.push({from:strTxHash, receipt:receipt})
                 }
-
+                if (this._api && arrReceipt.length) {
+                    await this._api.saveReceipts(arrReceipt);
+                }
                 // BATCH WRITE
                 await this._db.batch(arrOps);
             } finally {

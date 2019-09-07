@@ -1516,8 +1516,8 @@ module.exports = (factory, factoryOptions) => {
                 setBlocksToRollback,
                 arrTopStable
             } = result;
-
-            logger.log(`Blocks ${Array.from(setStableBlocks.keys())} are stable now`);
+//777
+            //logger.log(`Blocks ${Array.from(setStableBlocks.keys())} are stable now`);
 
             await this._storage.applyPatch(patchToApply);
             await this._updateLastAppliedBlocks(arrTopStable);
@@ -1594,9 +1594,10 @@ module.exports = (factory, factoryOptions) => {
          * @private
          */
         async _postAcceptBlock(block) {
-            logger.log(
-                `Block ${block.hash()}. ConciliumId: ${block.conciliumId}. With ${block.txns.length} TXns and parents ${block.parentHashes} was accepted`
-            );
+            //777
+            // logger.log(
+            //     `Block ${block.hash()}. ConciliumId: ${block.conciliumId}. With ${block.txns.length} TXns and parents ${block.parentHashes} was accepted`
+            // );
 
             if (this._rpc) {
                 const blockAndState = await this._getBlockAndState(block.hash()).catch(err => debugNode(err));
@@ -2203,7 +2204,8 @@ module.exports = (factory, factoryOptions) => {
             if (buffSourceTx) {
                 const receipt = await this._storage.getTxReceipt(buffSourceTx);
                 const coins = receipt.getCoinsForTx(strTxHash);
-
+console.log('strTxHash:', strTxHash, ' buffSourceTx:',buffSourceTx.toString('hex') )                
+console.log(receipt.toObject())
                 return formResult(
                     {coins: coins.getRawData(), from: buffSourceTx.toString('hex')},
                     'internal',
