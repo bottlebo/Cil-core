@@ -151,21 +151,26 @@ module.exports = ({Constants, Transaction, Crypto, PatchDB, Coins, TxReceipt, Co
 
         /**
          *
-         * @param {Object} objCallbacks - for sending funds & nested contract calls
-         * @param {Function} objCallbacks.invokeContract
-         * @param {Function} objCallbacks.createInternalTx
          * @param objVariables
          */
         setupVariables(objVariables) {
-            const {coinsLimit, objFees, objCallbacks} = objVariables;
+            const {coinsLimit, objFees} = objVariables;
 
             this._objFees = objFees;
-            this._nInitialConis = this._nCoinsLimit = coinsLimit;
-            this._objCallbacks = objCallbacks;
+            this._nInitialCoins = this._nCoinsLimit = coinsLimit;
 
             this._nDataDelta = 0;
             this._arrContractDataSize = [];
             this._arrContracts = [];
+        }
+
+        /**
+         *
+         * @param {Object} objCallbacks - for sending funds & nested contract calls
+         * @param {Function} objCallbacks.invokeContract
+         * @param {Function} objCallbacks.createInternalTx         */
+        setCallbacks(objCallbacks) {
+            this._objCallbacks = objCallbacks;
         }
 
         /**
@@ -342,7 +347,7 @@ module.exports = ({Constants, Transaction, Crypto, PatchDB, Coins, TxReceipt, Co
         _send(strAddress, amount) {
 
             // if it will throw (not enough) - no assignment will be made
-            this._nCoinsLimit = _spendCoins(this._nCoinsLimit, Constants.fees.INTERNAL_TX_FEE);
+            this._nCoinsLimit = _spendCoins(this._nCoinsLimit, this._objFees.nFeeInternalTx);
             this._objCallbacks.sendCoins(strAddress, amount, this._getCurrentContract());
         }
 
@@ -376,7 +381,7 @@ module.exports = ({Constants, Transaction, Crypto, PatchDB, Coins, TxReceipt, Co
         }
 
         coinsSpent() {
-            return this._nInitialConis - this._nCoinsLimit;
+            return this._nInitialCoins - this._nCoinsLimit;
         }
 
         getDataDelta() {
