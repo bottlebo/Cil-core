@@ -1183,8 +1183,9 @@ module.exports = (factory, factoryOptions) => {
                     types.Patch, typeforce.Number, typeforce.Number
                 ), arguments);
 
-            if (contract && this._processedBlock && this._processedBlock.getHeight() >=
-                Constants.HEIGHT_FORK_SERIALIZER) {
+            if (contract &&
+                this._processedBlock &&
+                this._processedBlock.getHeight() >= Constants.forks.HEIGHT_FORK_SERIALIZER) {
                 contract.switchSerializerToJson();
             }
 
@@ -1242,8 +1243,9 @@ module.exports = (factory, factoryOptions) => {
                     }
                     contract = await this._app.createContract(tx.getContractCode(), environment);
 
-                    if (contract && this._processedBlock && this._processedBlock.getHeight() >=
-                        Constants.HEIGHT_FORK_SERIALIZER) {
+                    if (contract &&
+                        this._processedBlock &&
+                        this._processedBlock.getHeight() >= Constants.forks.HEIGHT_FORK_SERIALIZER) {
                         contract.switchSerializerToJson();
                     }
 
@@ -1291,19 +1293,28 @@ module.exports = (factory, factoryOptions) => {
 
             let fee = 0;
 
-            // send change (not for Genesis)
-            if (!isGenesis) {
-                fee = this._createContractChange(tx, nMaxCoins, patchThisTx, contract, receipt);
-            }
-
             // contract could throw, so it could be undefined
             if (contract) {
                 patchThisTx.setContract(contract);
 
-                if (!contract.getConciliumId()) contract.setConciliumId(tx.conciliumId);
+                if (contract.getConciliumId() === undefined) contract.setConciliumId(tx.conciliumId);
 
                 // increase balance of contract
-                if (receipt.isSuccessful()) contract.deposit(tx.getContractSentAmount());
+                if (receipt.isSuccessful()) {
+                    contract.deposit(tx.getContractSentAmount());
+                } else if (tx.getContractSentAmount() > 0 &&
+                           this._processedBlock &&
+                           this._processedBlock.getHeight() >= Constants.forks.HEIGHT_FORK_SERIALIZER
+                ) {
+
+                    // return moneys to change receiver
+                    nMaxCoins += tx.getContractSentAmount();
+                }
+            }
+
+            // send change (not for Genesis)
+            if (!isGenesis) {
+                fee = this._createContractChange(tx, nMaxCoins, patchThisTx, receipt);
             }
 
             return fee;
@@ -1918,12 +1929,11 @@ module.exports = (factory, factoryOptions) => {
          * @param {Transaction} tx
          * @param {Number} maxFee
          * @param {PatchDB} patch
-         * @param {Contract} contract
          * @param {TxReceipt} receipt
          * @returns {Number} - fee
          * @private
          */
-        _createContractChange(tx, maxFee, patch, contract, receipt) {
+        _createContractChange(tx, maxFee, patch, receipt) {
             let fee = receipt.getCoinsUsed();
 
             assert(maxFee - fee >= 0, '_createContractChange. We spent more than have!');
