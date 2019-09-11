@@ -867,6 +867,10 @@ module.exports = (factory, factoryOptions) => {
 
             try {
                 switch (event) {
+                    case 'getLastBlockByConciliumId':
+                        return await this.getLastBlockByConciliumId(content);
+                    case 'countWallets':
+                        return {count: await this._storage.countWallets()};
                     case 'tx':
                         return await this._acceptLocalTx(content);
                     case 'getContractData':
@@ -1181,6 +1185,12 @@ module.exports = (factory, factoryOptions) => {
                     types.Patch, typeforce.Number, typeforce.Number
                 ), arguments);
 
+            if (contract &&
+                this._processedBlock &&
+                this._processedBlock.getHeight() >= Constants.forks.HEIGHT_FORK_SERIALIZER) {
+                contract.switchSerializerToJson();
+            }
+
             // contract creation/invocation has 2 types of change:
             // 1st - usual for UTXO just send exceeded coins to self
             // 2nd - not used coins (in/out diff - coinsUsed) as internal TX
@@ -1213,6 +1223,11 @@ module.exports = (factory, factoryOptions) => {
             let message;
             let bNewContract;
 
+            this._app.setupVariables({
+                objFees: {nFeeContractCreation, nFeeContractInvocation, nFeeInternalTx},
+                coinsLimit
+            });
+
             try {
                 if (!contract) {
                     if (coinsLimit < nFeeContractCreation) {
@@ -1228,12 +1243,14 @@ module.exports = (factory, factoryOptions) => {
                     if (await this._storage.getContract(Buffer.from(addr, 'hex'))) {
                         throw new Error('Contract already exists');
                     }
-
-                    this._app.setupVariables({
-                        objFees: {nFeeContractCreation, nFeeContractInvocation, nFeeInternalTx},
-                        coinsLimit
-                    });
                     contract = await this._app.createContract(tx.getContractCode(), environment);
+
+                    if (contract &&
+                        this._processedBlock &&
+                        this._processedBlock.getHeight() >= Constants.forks.HEIGHT_FORK_SERIALIZER) {
+                        contract.switchSerializerToJson();
+                    }
+
                     bNewContract = true;
                 } else {
                     if (coinsLimit < nFeeContractInvocation) {
@@ -1244,7 +1261,7 @@ module.exports = (factory, factoryOptions) => {
                     // contract invocation
                     assert(
                         contract.getConciliumId() === tx.conciliumId,
-                        `TX conciliumId: "${tx.conciliumId}" != contract conciliumId`
+                        `TX wrong conciliumId: "${tx.conciliumId}" != contract conciliumId`
                     );
 
                     const invocationCode = tx.getContractCode();
@@ -1252,11 +1269,7 @@ module.exports = (factory, factoryOptions) => {
                     environment.contractAddr = contract.getStoredAddress();
                     environment.balance = contract.getBalance();
 
-                    this._app.setupVariables({
-                        objFees: {nFeeContractCreation, nFeeContractInvocation, nFeeInternalTx},
-                        coinsLimit,
-                        objCallbacks: this._createCallbacksForApp(patchForBlock, patchThisTx, tx.hash())
-                    });
+                    this._app.setCallbacks(this._createCallbacksForApp(patchForBlock, patchThisTx, tx.hash()));
 
                     await this._app.runContract(
                         invocationCode && invocationCode.length ? JSON.parse(tx.getContractCode()) : {},
@@ -1278,23 +1291,32 @@ module.exports = (factory, factoryOptions) => {
                 status,
                 message
             });
-
             patchThisTx.setReceipt(tx.hash(), receipt);
-            let fee = 0;
 
-            // send change (not for Genesis)
-            if (!isGenesis) {
-                fee = this._createContractChange(tx, nMaxCoins, patchThisTx, contract, receipt);
-            }
+            let fee = 0;
 
             // contract could throw, so it could be undefined
             if (contract) {
                 patchThisTx.setContract(contract);
 
-                if (!contract.getConciliumId()) contract.setConciliumId(tx.conciliumId);
+                if (contract.getConciliumId() === undefined) contract.setConciliumId(tx.conciliumId);
 
                 // increase balance of contract
-                if (receipt.isSuccessful()) contract.deposit(tx.getContractSentAmount());
+                if (receipt.isSuccessful()) {
+                    contract.deposit(tx.getContractSentAmount());
+                } else if (tx.getContractSentAmount() > 0 &&
+                           this._processedBlock &&
+                           this._processedBlock.getHeight() >= Constants.forks.HEIGHT_FORK_SERIALIZER
+                ) {
+
+                    // return moneys to change receiver
+                    nMaxCoins += tx.getContractSentAmount();
+                }
+            }
+
+            // send change (not for Genesis)
+            if (!isGenesis) {
+                fee = this._createContractChange(tx, nMaxCoins, patchThisTx, receipt);
             }
 
             return fee;
@@ -1459,14 +1481,13 @@ module.exports = (factory, factoryOptions) => {
             if (!isGenesis) this._checkHeight(block);
 
             let patchState = this._pendingBlocks.mergePatches(block.parentHashes);
+            patchState.setConciliumId(block.conciliumId);
 
             let blockFees = 0;
             const blockTxns = block.txns;
 
             // should start from 1, because coinbase tx need different processing
             for (let i = 1; i < blockTxns.length; i++) {
-                patchState.setConciliumId(block.conciliumId);
-
                 const tx = new Transaction(blockTxns[i]);
                 const {fee, patchThisTx} = await this._processTx(patchState, isGenesis, tx);
                 blockFees += fee;
@@ -1554,13 +1575,13 @@ module.exports = (factory, factoryOptions) => {
             const mapPrevConciliumIdHash = new Map();
             arrPrevTopStableBlocks.forEach(hash => {
                 const cBlockInfo = this._mainDag.getBlockInfo(hash);
-                mapPrevConciliumIdHash.set(cBlockInfo.conciliumId(), hash);
+                mapPrevConciliumIdHash.set(cBlockInfo.getConciliumId(), hash);
             });
 
             const mapNewConciliumIdHash = new Map();
             arrTopStable.forEach(hash => {
                 const cBlockInfo = this._mainDag.getBlockInfo(hash);
-                mapNewConciliumIdHash.set(cBlockInfo.conciliumId(), hash);
+                mapNewConciliumIdHash.set(cBlockInfo.getConciliumId(), hash);
             });
 
             const arrNewLastApplied = [];
@@ -1910,12 +1931,11 @@ module.exports = (factory, factoryOptions) => {
          * @param {Transaction} tx
          * @param {Number} maxFee
          * @param {PatchDB} patch
-         * @param {Contract} contract
          * @param {TxReceipt} receipt
          * @returns {Number} - fee
          * @private
          */
-        _createContractChange(tx, maxFee, patch, contract, receipt) {
+        _createContractChange(tx, maxFee, patch, receipt) {
             let fee = receipt.getCoinsUsed();
 
             assert(maxFee - fee >= 0, '_createContractChange. We spent more than have!');
@@ -2354,6 +2374,29 @@ module.exports = (factory, factoryOptions) => {
 
         async _getAllWitnesses() {
             return this._peerManager.filterPeers({service: Constants.WITNESS}, true);
+        }
+
+        async getLastBlockByConciliumId(nConciliumId) {
+            let maxHeight = 0;
+            let strBestHash;
+
+            this._pendingBlocks.forEach(hash => {
+                const {blockHeader} = this._pendingBlocks.getBlock(hash);
+                const blockInfo = new factory.BlockInfo(blockHeader);
+                if (blockInfo.getHeight() > maxHeight && blockInfo.getConciliumId() === nConciliumId) {
+                    maxHeight = blockInfo.getHeight();
+                    strBestHash = hash;
+                }
+            });
+
+            if (strBestHash) return strBestHash;
+
+            const arrLastStable = await this._storage.getLastAppliedBlockHashes();
+            const [stableBi] = arrLastStable
+                .map(hash => this._mainDag.getBlockInfo(hash))
+                .filter(bi => bi.getConciliumId() === nConciliumId);
+
+            return stableBi ? stableBi.getHash() : undefined;
         }
     };
 };

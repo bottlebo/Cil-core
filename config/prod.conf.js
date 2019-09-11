@@ -15,7 +15,7 @@ module.exports = {
         strIdent: 'Prod',
 
         network: 0x12882304,
-        protocolVersion: 0x0128,
+        protocolVersion: 0x0129,
         port: 8223,
 
         rpcPort: 8222,
@@ -94,10 +94,10 @@ module.exports = {
         },
 
         consensusTimeouts: {
-            ROUND_CHANGE: 10000,
-            BLOCK: 20000,
-            VOTE_BLOCK: 10000,
-            COMMIT: 20000
+            ROUND_CHANGE: 20000,
+            BLOCK: 30000,
+            VOTE_BLOCK: 20000,
+            COMMIT: 30000
         },
 
         // maximum time offset for nodes we tolerate
@@ -146,6 +146,11 @@ module.exports = {
         concilium: {
             HEIGHT_TO_RELEASE_ADD_ON: 1000,
             POS_CONCILIUM_ROUNDS: 20
+        },
+
+        forks: {
+            HEIGHT_FORK_SERIALIZER: 3775,
+            HEIGHT_FORK_CHANGE: 3775
         }
     }
 };

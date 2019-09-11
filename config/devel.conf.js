@@ -27,7 +27,7 @@ module.exports = {
 
         strIdent: 'Devel',
 
-        protocolVersion: 0x0127,
+        protocolVersion: 0x0129,
         network: 0x12880004,
         port: 18223,
         rpcPort: 18222,
@@ -47,6 +47,11 @@ module.exports = {
         concilium: {
             HEIGHT_TO_RELEASE_ADD_ON: 50,
             POS_CONCILIUM_ROUNDS: 10
+        },
+
+        forks: {
+            HEIGHT_FORK_SERIALIZER: 8970,
+            HEIGHT_FORK_CHANGE: 8992
         }
     }
 };
