@@ -95,26 +95,24 @@ module.exports = (factory, factoryOptions) => {
         });
     }
     async saveReceipts(arrReceipts) {
-      console.log('********************************')
-//console.log(arrReceipts)
-      const data = arrReceipts.map(obj => {
+      let data = arrReceipts.map(obj => {
         let objReceipt = obj.receipt.toObject();
-        console.log(objReceipt)
         let from = obj.from;
-        return {
-          internalTxns: [...objReceipt.internalTxns],
-          coins: [...objReceipt.coins.map(coin => ({amount: coin.amount, receiverAddr: coin.receiverAddr.toString('hex')}))],
-          from: from,
-          status: 'internal'
-        }
+        if (objReceipt.internalTxns.length)
+          return {
+            internalTxns: [...objReceipt.internalTxns],
+            coins: [...objReceipt.coins.map(coin => ({amount: coin.amount, receiverAddr: coin.receiverAddr.toString('hex')}))],
+            from: from,
+            status: 'internal'
+          }
       });
-      console.log(data)
-      console.log('********************************')
-
-      // await axios.post('Receipt', data)
-      //   .catch(error => {
-      //     console.log(error);
-      //   });
+      data = data.filter(r => r)
+      if (data.length) {
+        await axios.post('Receipt', data)
+          .catch(error => {
+            console.log(error);
+          });
+      }
     }
   }
 }
