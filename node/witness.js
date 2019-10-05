@@ -2,15 +2,11 @@ const assert = require('assert');
 const typeforce = require('typeforce');
 const debugLib = require('debug');
 
-const {sleep} = require('../utils');
+const {sleep, createPeerTag} = require('../utils');
 const types = require('../types');
 
 const debugWitness = debugLib('witness:app');
 const debugWitnessMsg = debugLib('witness:messages');
-
-const createPeerTag = (nConciliumId) => {
-    return `wg${nConciliumId}`;
-};
 
 module.exports = (factory, factoryOptions) => {
     const {Node, Messages, Constants, BFT, Block, Transaction, BaseConciliumDefinition, PatchDB, BlockInfo} = factory;
@@ -51,6 +47,8 @@ module.exports = (factory, factoryOptions) => {
 
             // try early initialization of consensus engines
             const arrConciliums = await this._storage.getConciliumsByAddress(this._wallet.address);
+
+            this._createPseudoRandomSeed(await this._storage.getLastAppliedBlockHashes());
 
             for (let def of arrConciliums) {
                 await this._createConsensusForConcilium(def);
@@ -104,10 +102,17 @@ module.exports = (factory, factoryOptions) => {
             }
         }
 
+        /**
+         *
+         * @param {Peer} peer
+         * @param {BaseConciliumDefinition} concilium
+         * @return {Promise<void>}
+         * @private
+         */
         async _connectWitness(peer, concilium) {
 
             // we already done with this neighbour
-            if (peer.witnessLoadDone) return;
+            if (peer.witnessLoadDone(concilium.getConciliumId())) return;
 
             debugWitness(`--------- "${this._debugAddress}" started WITNESS handshake with "${peer.address}" ----`);
             if (peer.disconnected) {
@@ -120,7 +125,7 @@ module.exports = (factory, factoryOptions) => {
 
             if (!peer.disconnected) {
 
-                if (!peer.witnessLoadDone) {
+                if (!peer.witnessLoadDone(concilium.getConciliumId())) {
 
                     // to prove that it's real witness it should perform signed handshake
                     const handshakeMsg = this._createHandshakeMessage(concilium.getConciliumId());
@@ -130,7 +135,7 @@ module.exports = (factory, factoryOptions) => {
                     await Promise.race([peer.witnessLoaded(), sleep(Constants.PEER_QUERY_TIMEOUT)]);
                 }
 
-                if (peer.witnessLoadDone) {
+                if (peer.witnessLoadDone(concilium.getConciliumId())) {
                     debugWitness(`----- "${this._debugAddress}". WITNESS handshake with "${peer.address}" DONE ---`);
                 } else {
                     debugWitness(`----- "${this._debugAddress}". WITNESS peer "${peer.address}" TIMED OUT ---`);
@@ -218,11 +223,6 @@ module.exports = (factory, factoryOptions) => {
                     return;
                 }
 
-//                if(!peer.witnessLoadDone) {
-//                    peer.ban();
-//                    throw new Error('Peer missed handshake stage');
-//                }
-
                 if (messageWitness.isWitnessBlock()) {
                     await this._processBlockMessage(peer, messageWitness, consensus);
                     return;
@@ -233,6 +233,7 @@ module.exports = (factory, factoryOptions) => {
                     const exposeMsg = this._createExposeMessage(messageWitness);
                     this._broadcastConsensusInitiatedMessage(exposeMsg);
                 }
+
                 debugWitness(`(address: "${this._debugAddress}") sending data to BFT: ${messageWitness.content.toString(
                     'hex')}`);
                 consensus.processMessage(messageWitness);
@@ -241,6 +242,14 @@ module.exports = (factory, factoryOptions) => {
             }
         }
 
+        /**
+         *
+         * @param {Peer} peer
+         * @param {MsgWitnessCommon} messageWitness
+         * @param {BFT} consensus
+         * @return {Promise<void>}
+         * @private
+         */
         async _processHandshakeMessage(peer, messageWitness, consensus) {
 
             // check whether this witness belong to our concilium
@@ -249,7 +258,7 @@ module.exports = (factory, factoryOptions) => {
                 throw(`Witness: "${this._debugAddress}" this guy UNKNOWN!`);
             }
 
-            if (!peer.witnessLoadDone) {
+            if (!peer.witnessLoadDone(messageWitness.conciliumId)) {
 
                 // we don't check version & self connection because it's done on previous step (node connection)
                 const response = this._createHandshakeMessage(messageWitness.conciliumId);
@@ -271,6 +280,8 @@ module.exports = (factory, factoryOptions) => {
          * @private
          */
         async _processBlockMessage(peer, messageWitness, consensus) {
+
+            // check proposer
             if (consensus.shouldPublish(messageWitness.address)) {
 
                 // this will advance us to VOTE_BLOCK state whether block valid or not!
@@ -442,6 +453,7 @@ module.exports = (factory, factoryOptions) => {
          * @private
          */
         async _createBlock(conciliumId) {
+            const nStartTime = Date.now();
             const block = new Block(conciliumId);
             block.markAsBuilding();
 
@@ -463,6 +475,10 @@ module.exports = (factory, factoryOptions) => {
                 for (let tx of this._mempool.getFinalTxns(conciliumId)) {
                     try {
                         const {fee, patchThisTx} = await this._processTx(patchMerged, false, tx);
+
+                        // this tx exceeded time limit for block creations - so we don't include it
+                        if (Date.now() - nStartTime > Constants.blockCreationTimeLimit) break;
+
                         totalFee += fee;
                         patchMerged = patchMerged.merge(patchThisTx, true);
                         block.addTx(tx);
@@ -490,9 +506,8 @@ module.exports = (factory, factoryOptions) => {
         }
 
         _createPseudoRandomSeed(arrLastStableBlockHashes) {
-            const seed = super._createPseudoRandomSeed(arrLastStableBlockHashes);
-            this._conciliumSeed = seed;
-            this._consensuses.forEach(c => c.setRoundSeed(seed));
+            this._conciliumSeed = super._createPseudoRandomSeed(arrLastStableBlockHashes);
+            this._consensuses.forEach(c => c.setRoundSeed(this._conciliumSeed));
         };
     };
 };

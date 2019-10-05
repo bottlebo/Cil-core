@@ -21,6 +21,10 @@ function GCD(arrNumbers) {
     return x;
 }
 
+const createPeerTag = (nConciliumId) => {
+    return `wg${nConciliumId}`;
+};
+
 const deepCloneObject = (objToClone) => {
     return v8.deserialize(v8.serialize(objToClone));
 };
@@ -291,5 +295,6 @@ module.exports = {
     decryptPkFileContent,
     mapEnvToOptions,
     mapOptionsToNodeParameters,
-    GCD
+    GCD,
+    createPeerTag
 };

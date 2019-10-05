@@ -365,6 +365,7 @@ module.exports = (factory, factoryOptions) => {
 
             try {
                 await this._processReceivedTx(tx);
+                await this._informNeighbors(tx, peer);
             } catch (e) {
                 logger.error(e, `Bad TX received. Peer ${peer.address}`);
                 peer.misbehave(5);
@@ -867,6 +868,8 @@ module.exports = (factory, factoryOptions) => {
 
             try {
                 switch (event) {
+                    case 'getLastBlockByConciliumId':
+                        return await this.getLastBlockByConciliumId(content);
                     case 'countWallets':
                         return {count: await this._storage.countWallets()};
                     case 'tx':
@@ -924,7 +927,8 @@ module.exports = (factory, factoryOptions) => {
 
                         let arrPendingUtxos = [];
                         if (!bStableOnly) {
-                            const {patchMerged} = this._pendingBlocks.getBestParents();
+                            this._ensureBestBlockValid();
+                            const {patchMerged} = this._objCurrentBestParents;
                             arrPendingUtxos = Array.from(patchMerged.getCoins().values());
                         }
                         const arrStableUtxos = await this._storage.walletListUnspent(strAddress);
@@ -957,26 +961,15 @@ module.exports = (factory, factoryOptions) => {
             assert(!this._mempool.isBadTx(strNewTxHash), 'Tx already marked as bad');
             assert(!this._mempool.hasTx(strNewTxHash), 'Tx already in mempool');
 
-            const patchNewTx = await this._processReceivedTx(newTx, false, false);
+            await this._processReceivedTx(newTx, false);
+            const {patchThisTx: patchNewTx} = await this._processTx(undefined, false, newTx);
 
             // let's check for patch conflicts with other local txns
-
             try {
-                for (let {strTxHash, patchTx} of this._mempool.getLocalTxnsPatches()) {
+                await this._ensureLocalTxnsPatch();
 
-                    // NO patches - means mempool just loaded, we need to exec all stored local txns
-                    if (!patchTx) {
-                        const localTx = this._mempool.getTx(strTxHash);
-
-                        // exec it. no need to validate. local txns were already validated
-                        const {patchThisTx} = await this._processTx(undefined, false, localTx);
-
-                        // store it back with patch
-                        this._mempool.addLocalTx(localTx, patchThisTx);
-                        patchTx = patchThisTx;
-                    }
-                    patchTx.merge(patchNewTx);
-                }
+                // update cache
+                this._patchLocalTxns = this._patchLocalTxns.merge(patchNewTx);
 
                 // all merges passed - accept new tx
                 this._mempool.addLocalTx(newTx, patchNewTx);
@@ -993,11 +986,9 @@ module.exports = (factory, factoryOptions) => {
          *
          * @param {Transaction} tx
          * @param {Boolean} bStoreInMempool - should we store it in mempool (false - only for received from RPC txns)
-         * @param {Boolean} bInformNeighbours - should we store broadcast it (false - only for received from RPC txns)
-         * @returns {Promise<PatchDB>}
          * @private
          */
-        async _processReceivedTx(tx, bStoreInMempool = true, bInformNeighbours = true) {
+        async _processReceivedTx(tx, bStoreInMempool = true) {
             typeforce(types.Transaction, tx);
 
             const strTxHash = tx.getHash();
@@ -1011,16 +1002,12 @@ module.exports = (factory, factoryOptions) => {
             let patchThisTx;
             try {
                 await this._storage.checkTxCollision([strTxHash]);
-                ({patchThisTx} = await this._processTx(new PatchDB(), false, tx));
+                await this._validateTxLight(tx);
                 if (bStoreInMempool) this._mempool.addTx(tx);
             } catch (e) {
                 this._mempool.storeBadTxHash(strTxHash);
                 throw e;
             }
-
-            if (bInformNeighbours) await this._informNeighbors(tx);
-
-            return patchThisTx;
         }
 
         /**
@@ -1079,7 +1066,7 @@ module.exports = (factory, factoryOptions) => {
                         contract,
                         tx,
                         patchThisTx,
-                        patchForBlock,
+                        patchForBlock || new PatchDB(),
                         nRemainingCoins,
                         nFeeSize
                     );
@@ -1527,6 +1514,9 @@ module.exports = (factory, factoryOptions) => {
             this._pendingBlocks.addBlock(block, patchState);
 
             const arrStrHashes = block.getTxHashes();
+
+            // invalidate cache
+            this._patchLocalTxns = undefined;
             this._mempool.removeForBlock(arrStrHashes);
 
             // check for finality
@@ -1573,13 +1563,13 @@ module.exports = (factory, factoryOptions) => {
             const mapPrevConciliumIdHash = new Map();
             arrPrevTopStableBlocks.forEach(hash => {
                 const cBlockInfo = this._mainDag.getBlockInfo(hash);
-                mapPrevConciliumIdHash.set(cBlockInfo.conciliumId(), hash);
+                mapPrevConciliumIdHash.set(cBlockInfo.getConciliumId(), hash);
             });
 
             const mapNewConciliumIdHash = new Map();
             arrTopStable.forEach(hash => {
                 const cBlockInfo = this._mainDag.getBlockInfo(hash);
-                mapNewConciliumIdHash.set(cBlockInfo.conciliumId(), hash);
+                mapNewConciliumIdHash.set(cBlockInfo.getConciliumId(), hash);
             });
 
             const arrNewLastApplied = [];
@@ -1627,6 +1617,8 @@ module.exports = (factory, factoryOptions) => {
             logger.log(
                 `Block ${block.hash()}. ConciliumId: ${block.conciliumId}. With ${block.txns.length} TXns and parents ${block.parentHashes} was accepted`
             );
+
+            this._objCurrentBestParents = undefined;
 
             if (this._rpc) {
                 const blockAndState = await this._getBlockAndState(block.hash()).catch(err => debugNode(err));
@@ -1765,7 +1757,9 @@ module.exports = (factory, factoryOptions) => {
                 }
                 this._processedBlock = block;
                 const patchBlock = await this._execBlock(block);
+
                 this._pendingBlocks.addBlock(block, patchBlock);
+
                 setPatches.add(hash);
                 this._processedBlock = undefined;
             };
@@ -2372,6 +2366,77 @@ module.exports = (factory, factoryOptions) => {
 
         async _getAllWitnesses() {
             return this._peerManager.filterPeers({service: Constants.WITNESS}, true);
+        }
+
+        async getLastBlockByConciliumId(nConciliumId) {
+            let maxHeight = 0;
+            let strBestHash;
+
+            this._pendingBlocks.forEach(hash => {
+                const {blockHeader} = this._pendingBlocks.getBlock(hash);
+                const blockInfo = new factory.BlockInfo(blockHeader);
+                if (blockInfo.getHeight() > maxHeight && blockInfo.getConciliumId() === nConciliumId) {
+                    maxHeight = blockInfo.getHeight();
+                    strBestHash = hash;
+                }
+            });
+
+            if (strBestHash) return strBestHash;
+
+            const arrLastStable = await this._storage.getLastAppliedBlockHashes();
+            const [stableBi] = arrLastStable
+                .map(hash => this._mainDag.getBlockInfo(hash))
+                .filter(bi => bi.getConciliumId() === nConciliumId);
+
+            return stableBi ? stableBi.getHash() : undefined;
+        }
+
+        async _validateTxLight(tx) {
+            tx.verify();
+            const patchUtxos = await this._storage.getUtxosPatch(tx.utxos);
+
+            this._ensureBestBlockValid();
+            let {patchMerged} = this._objCurrentBestParents;
+
+            const {totalHas} = this._app.processTxInputs(tx, patchMerged.merge(patchUtxos));
+            const sizeFee = await this._calculateSizeFee(tx, false);
+            assert(totalHas >= tx.amountOut() + sizeFee, `Require fee at least ${sizeFee}`);
+        }
+
+        _ensureBestBlockValid() {
+            if (this._objCurrentBestParents) return;
+            this._objCurrentBestParents = this._pendingBlocks.getBestParents();
+        }
+
+        /**
+         * Get patch of all non-conflicting txns and store it as cache
+         * Invalidate when purging txns from mempool
+         *
+         * @private
+         */
+        async _ensureLocalTxnsPatch() {
+            if (this._patchLocalTxns) return this._patchLocalTxns;
+
+            let patchMerged = new PatchDB();
+
+            for (let {strTxHash, patchTx} of this._mempool.getLocalTxnsPatches()) {
+
+                // NO patches - means mempool just loaded, we need to exec all stored local txns
+                if (!patchTx) {
+                    const localTx = this._mempool.getTx(strTxHash);
+
+                    // exec it. no need to validate. local txns were already validated
+                    const {patchThisTx} = await this._processTx(undefined, false, localTx);
+
+                    // store it back with patch
+                    this._mempool.addLocalTx(localTx, patchThisTx);
+                    patchTx = patchThisTx;
+                }
+
+                patchMerged = patchMerged.merge(patchTx);
+            }
+
+            this._patchLocalTxns = patchMerged;
         }
     };
 };
