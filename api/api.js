@@ -76,10 +76,43 @@ module.exports = (factory, factoryOptions) => {
         });
     }
     async deleteUtxos(arrHash) {
-      await axios.delete(`Utxo`, {data:arrHash})
+      await axios.delete(`Utxo`, {data: arrHash})
         .catch(error => {
           console.log(error);
         });
+    }
+    async saveContracts(arrContract) {
+      const data = arrContract.map(objContract => ({
+        address: objContract.strContractAddr,
+        code: objContract.contract.getCode(),
+        data: JSON.stringify(objContract.contract.getData()),
+        conciliumId: objContract.contract.getConciliumId(),
+        balance: objContract.contract.getBalance()
+      }));
+      await axios.post('Contract', data)
+        .catch(error => {
+          console.log(error);
+        });
+    }
+    async saveReceipts(arrReceipts) {
+      let data = arrReceipts.map(obj => {
+        let objReceipt = obj.receipt.toObject();
+        let from = obj.from;
+        if (objReceipt.internalTxns.length)
+          return {
+            internalTxns: [...objReceipt.internalTxns],
+            coins: [...objReceipt.coins.map(coin => ({amount: coin.amount, receiverAddr: coin.receiverAddr.toString('hex')}))],
+            from: from,
+            status: 'internal'
+          }
+      });
+      data = data.filter(r => r)
+      if (data.length) {
+        await axios.post('Receipt', data)
+          .catch(error => {
+            console.log(error);
+          });
+      }
     }
   }
 }

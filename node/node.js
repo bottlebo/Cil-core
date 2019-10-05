@@ -1536,7 +1536,6 @@ module.exports = (factory, factoryOptions) => {
                 setBlocksToRollback,
                 arrTopStable
             } = result;
-
             logger.log(`Blocks ${Array.from(setStableBlocks.keys())} are stable now`);
 
             await this._storage.applyPatch(patchToApply);
@@ -2226,7 +2225,6 @@ module.exports = (factory, factoryOptions) => {
             if (buffSourceTx) {
                 const receipt = await this._storage.getTxReceipt(buffSourceTx);
                 const coins = receipt.getCoinsForTx(strTxHash);
-
                 return formResult(
                     {coins: coins.getRawData(), from: buffSourceTx.toString('hex')},
                     'internal',
