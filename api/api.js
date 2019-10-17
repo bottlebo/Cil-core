@@ -8,6 +8,10 @@ module.exports = (factory, factoryOptions) => {
       const config = configs[options.apiConfig];
       if (config) {
         axios.defaults.baseURL = config.baseURL;
+        if (options.apiUser && options.apiPassword) {
+          const auth = 'Basic ' + new Buffer.from(options.apiUser + ':' + options.apiPassword).toString('base64');
+          axios.defaults.headers.common['Authorization'] = auth;
+        }
       }
     }
     async saveBlock(block, blockInfo) {
@@ -40,7 +44,6 @@ module.exports = (factory, factoryOptions) => {
           }
         })
       }
-      //console.log(data);
 
       await axios.post('Block', data)
         .catch(error => {

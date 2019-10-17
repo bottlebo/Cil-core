@@ -256,6 +256,8 @@ module.exports = {
             {name: "localDevNode", type: Boolean, multiple: false},
             {name: "rebuildDb", type: Boolean, multiple: false},
             {name: "apiConfig", type: String, multiple: false},
+            {name: "apiUser", type: String, multiple: false},
+            {name: "apiPassword", type: String, multiple: false},
         ];
         return commandLineArgs(optionDefinitions, {camelCase: true});
     },
