@@ -66,6 +66,9 @@ module.exports = (factory, factoryOptions) => {
 
             const arrConciliums = await this._storage.getConciliumsByAddress(this._wallet.address);
 
+            const arrConciliumIds = arrConciliums.map(cConcilium => cConcilium.getConciliumId());
+            this._mempool.setPreferredConciliums(arrConciliumIds);
+
             // this need only at very beginning when witness start without genesis. In this case
             const wasInitialized = this._consensuses.size;
 
@@ -356,7 +359,10 @@ module.exports = (factory, factoryOptions) => {
                 debugWitness(`Witness: "${this._debugAddress}" message "${message.message}" from CONSENSUS engine`);
                 this._broadcastConsensusInitiatedMessage(message);
             });
+
             consensus.on('createBlock', async () => {
+                if (this._mutex.isLocked('commitBlock')) return;
+
                 const lock = await this._mutex.acquire(['createBlock']);
 
                 try {
@@ -376,11 +382,20 @@ module.exports = (factory, factoryOptions) => {
                     this._mutex.release(lock);
                 }
             });
+
             consensus.on('commitBlock', async (block) => {
-                await this._handleArrivedBlock(block);
-                logger.log(
-                    `Witness: "${this._debugAddress}" block "${block.hash()}" Round: ${consensus.getCurrentRound()} commited at ${new Date} `);
-                consensus.blockCommited();
+                const lock = await this._mutex.acquire(['commitBlock']);
+                try {
+                    await this._handleArrivedBlock(block);
+                    logger.log(
+                        `Witness: "${this._debugAddress}" block "${block.hash()}" Round: ${consensus.getCurrentRound()} commited at ${new Date} `);
+                    consensus.blockCommited();
+
+                } catch (e) {
+                    logger.error(e);
+                } finally {
+                    this._mutex.release(lock);
+                }
             });
         }
 
@@ -459,7 +474,7 @@ module.exports = (factory, factoryOptions) => {
 
             const lock = await this._mutex.acquire(['blockExec', 'blockCreate']);
             try {
-                let {arrParents, patchMerged} = this._pendingBlocks.getBestParents();
+                let {arrParents, patchMerged} = this._pendingBlocks.getBestParents(conciliumId);
                 patchMerged = patchMerged ? patchMerged : new PatchDB();
                 patchMerged.setConciliumId(conciliumId);
 
