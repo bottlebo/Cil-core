@@ -27,7 +27,7 @@ module.exports = {
 
         strIdent: 'Devel',
 
-        protocolVersion: 0x0129,
+        protocolVersion: 0x0130,
         network: 0x12880004,
         port: 18223,
         rpcPort: 18222,
@@ -51,7 +51,8 @@ module.exports = {
 
         forks: {
             HEIGHT_FORK_SERIALIZER: 8970,
-            HEIGHT_FORK_CHANGE: 8992
+            HEIGHT_FORK_CHANGE: 8992,
+            HEIGHT_FORK_SERIALIZER_FIX2: 12405
         }
     }
 };
