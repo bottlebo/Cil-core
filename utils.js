@@ -257,7 +257,7 @@ module.exports = {
             {name: "rebuildDb", type: Boolean, multiple: false},
             {name: "apiConfig", type: String, multiple: false},
             {name: "rebuildDb", type: Boolean, multiple: false},
-            {name: "whitelistedAddr", type: String, multiple: true}
+            {name: "whitelistedAddr", type: String, multiple: true},
             {name: "apiUser", type: String, multiple: false},
             {name: "apiPassword", type: String, multiple: false},
         ];
