@@ -256,6 +256,8 @@ module.exports = {
             {name: "localDevNode", type: Boolean, multiple: false},
             {name: "rebuildDb", type: Boolean, multiple: false},
             {name: "apiConfig", type: String, multiple: false},
+            {name: "rebuildDb", type: Boolean, multiple: false},
+            {name: "whitelistedAddr", type: String, multiple: true}
         ];
         return commandLineArgs(optionDefinitions, {camelCase: true});
     },
