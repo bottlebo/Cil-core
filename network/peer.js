@@ -57,6 +57,8 @@ module.exports = (factory) => {
             } else {
                 throw new Error('Pass connection or peerInfo to create peer');
             }
+
+            this._whitelisted = false;
         }
 
         get amountBytes() {
@@ -186,6 +188,14 @@ module.exports = (factory) => {
             this._peerInfo.port = peerInfo.port;
         }
 
+        markAsWhitelisted() {
+            this._whitelisted = true;
+        }
+
+        isWhitelisted() {
+            return this._whitelisted;
+        }
+
         /**
          * this means peer was disconnected because we wish to connect to various nodes
          * but if there are no other peer (small net) - we'll reconnect after PEER_RESTRICT_TIME interval
@@ -227,10 +237,10 @@ module.exports = (factory) => {
             }
         }
 
-        async witnessLoaded() {
+        async witnessLoaded(nConciliumId) {
             for (let i = 0; i < Constants.PEER_QUERY_TIMEOUT / 100; i++) {
                 await sleep(100);
-                if (this.witnessLoadDone) break;
+                if (this.witnessLoadDone(nConciliumId)) break;
             }
         }
 
@@ -333,6 +343,8 @@ module.exports = (factory) => {
         }
 
         ban() {
+            if (this.isWhitelisted()) return;
+
             this._updateMisbehave(Constants.BAN_PEER_SCORE);
             this._bannedTill = Date.now() + Constants.BAN_PEER_TIME;
             logger.log(`Peer banned till ${new Date(this._bannedTill)}`);
