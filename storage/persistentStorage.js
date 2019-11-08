@@ -50,9 +50,9 @@ const eraseDbContent = async (db) => {
 module.exports = (factory, factoryOptions) => {
     const {
         Constants, Block, BlockInfo, UTXO, ArrayOfHashes, ArrayOfAddresses, Contract,
-        TxReceipt, BaseConciliumDefinition, ConciliumRr, ConciliumPos, Peer, PatchDB, Api
+        TxReceipt, BaseConciliumDefinition, ConciliumRr, ConciliumPos, Peer, PatchDB, Api, Dumper
     } = factory;
-
+    const {BlockDumper} = Dumper;
     return class Storage extends EventEmitter {
         constructor(options) {
             options = {
@@ -100,6 +100,7 @@ module.exports = (factory, factoryOptions) => {
             if (options.apiConfig) {
                 this._api = new Api({...options});
             }
+            this._blockDumper = new BlockDumper({...options});
         }
 
         /**
@@ -228,6 +229,7 @@ module.exports = (factory, factoryOptions) => {
             if (this._api) {
                 await this._api.saveBlock(block, blockInfo);
             }
+            this._blockDumper.dump(block, blockInfo);
             await this.saveBlockInfo(blockInfo);
 
             if (this._buildTxIndex) {

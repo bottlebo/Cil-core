@@ -49,7 +49,7 @@ const AppWrapper = require('./node/app');
 
 const StorageWrapper = require('./storage/persistentStorage');
 const ApiWrapper = require('./api/api')
-
+const DumpWrapper = require('./worker/index')
 const PatchWrapper = require('./storage/patch');
 const PendingBlocksManagerWrapper = require('./node/pendingBlocksManager');
 const MainDagWrapper = require('./node/mainDag');
@@ -118,7 +118,7 @@ class Factory {
                 this._peerManagerImplemetation = PeerManagerWrapper(this);
                 this._patchImplementation = PatchWrapper(this);
                 this._apiImplementation = ApiWrapper(this);
-
+                this._dumpImplementation = DumpWrapper(this);
 
                 this._storageImplementation = StorageWrapper(this);
                 this._bftImplementation = BftWrapper(this);
@@ -154,6 +154,9 @@ class Factory {
         return this._mutexImplementation;
     }
 
+    get Dumper() {
+        return this._dumpImplementation;
+    }
     get version() {
         const arrSubversions = pack.version.split('.');
         return parseInt(arrSubversions[0]) * Math.pow(2, 16) +

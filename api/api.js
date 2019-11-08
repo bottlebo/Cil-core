@@ -106,7 +106,10 @@ module.exports = (factory, factoryOptions) => {
             internalTxns: [...objReceipt.internalTxns],
             coins: [...objReceipt.coins.map(coin => ({amount: coin.amount, receiverAddr: coin.receiverAddr.toString('hex')}))],
             from: from,
-            status: 'internal'
+            coinsUsed: receipt.coinsUsed,
+            status: receipt.status,
+            message: receipt.message ? receipt.message : '',
+            contractAddress: receipt.contractAddress.toString('hex')
           }
       });
       data = data.filter(r => r)

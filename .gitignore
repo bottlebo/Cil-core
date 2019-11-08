@@ -3,3 +3,5 @@ node_modules
 .vscode
 .jscsrc
 package-lock.json
+db
+swap/*.dump
