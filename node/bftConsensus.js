@@ -46,7 +46,7 @@ module.exports = (factory) => {
             this._concilium.initRounds();
 
             this._tock = new Tick(this);
-            this._tock.setInterval(MAIN_TIMER_NAME, this._stateChange.bind(this), Timeouts.INIT);
+            this._tock.setInterval(MAIN_TIMER_NAME, this._stateChange.bind(this), Timeouts.ROUND_CHANGE);
 
             this._resetState();
 
@@ -76,6 +76,13 @@ module.exports = (factory) => {
             return this._arrAddresses.includes(address);
         }
 
+        /**
+         * It will handle only MsgWitnessNextRound & MsgWitnessBlockVote
+         * MsgWitnessBlock - processed at witness.js
+         *
+         * @param witnessMsg
+         * @return {boolean}
+         */
         processMessage(witnessMsg) {
             const senderAddr = witnessMsg.address;
 
@@ -93,6 +100,8 @@ module.exports = (factory) => {
                 witnessMsg = new Messages.MsgWitnessNextRound(msgCommon);
             } else if (msgCommon.isWitnessBlockVote()) {
                 witnessMsg = new Messages.MsgWitnessBlockVote(msgCommon);
+            } else {
+                return;
             }
 
             const state = this._stateFromMessage(witnessMsg);
@@ -103,7 +112,7 @@ module.exports = (factory) => {
             // make sure that those guys from our concilium
             // if ok - this means message wasn't changed
             if (!this.checkAddresses(senderAddr) || !this.checkAddresses(addrI)) {
-                throw new Error(`Message ${witnessMsg.message} from wrong address`);
+                throw new Error(`Message ${witnessMsg.message} from wrong address: "${senderAddr}".`);
             }
 
             debug(
@@ -231,8 +240,9 @@ module.exports = (factory) => {
          * - send it to other witnesses
          *
          * @param {Block} block
+         * @param {PatchDb} patch
          */
-        processValidBlock(block) {
+        processValidBlock(block, patch) {
             typeforce(types.Block, block);
 
             debug(`BFT "${this._nonce}". Received block with hash: ${block.hash()}. State ${this._state}`);
@@ -241,6 +251,7 @@ module.exports = (factory) => {
                 return;
             }
             this._block = block;
+            this._patch = patch;
             this._lastBlockTime = Date.now();
             this._blockStateHandler(true);
 
@@ -313,12 +324,12 @@ module.exports = (factory) => {
          * @private
          */
         _stateChange(isConsensus = false, consensusValue = undefined) {
-            const prevState = this._state;
-            this._adjustTimer();
-
             if (isConsensus && consensusValue && consensusValue.state) {
                 this._state = consensusValue.state;
+                this._adjustTimer();
             }
+
+            const prevState = this._state;
 
             switch (this._state) {
                 case States.ROUND_CHANGE:
@@ -337,6 +348,7 @@ module.exports = (factory) => {
                     break;
             }
             if (prevState !== this._state) {
+                this._adjustTimer();
                 debug(
                     `BFT "${this._nonce}" STATE changed! prev: "${prevState}" new "${this._state}" Round: ${this._concilium.getRound()}`);
             }
@@ -412,7 +424,7 @@ module.exports = (factory) => {
                         }
 
                         this._block.addWitnessSignatures(arrSignatures);
-                        this.emit('commitBlock', this._block);
+                        this.emit('commitBlock', this._block, this._patch);
                     } else {
 
                         // Proposer misbehave!! sent us different block than other!

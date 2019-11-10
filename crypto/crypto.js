@@ -66,7 +66,7 @@ class KeyPair {
 // algorithm used to symmtrical encryption/decryption (for storing privateKeys)
 const ALGO = 'aes256';
 const LENGTH = 16;
-const SCRYPT_OPTIONS = {N: 16384, p: 1};
+const SCRYPT_OPTIONS = {N: 131072, p: 1, r: 8};
 const PBKDF2_OPTIONS = {iterations: 1e5};
 
 class CryptoLib {
@@ -287,8 +287,14 @@ class CryptoLib {
                 key = this.argon2(password, salt, 32);
                 break;
             case 'scrypt':
-                options = hashOptions || SCRYPT_OPTIONS;
-                key = this.scrypt(password, salt, 32, options);
+                options = {...SCRYPT_OPTIONS, ...hashOptions};
+                options.maxmem = 129 * options.N * options.r;
+                key = this.scrypt(
+                    password,
+                    salt,
+                    32,
+                    options
+                );
                 break;
             default:
                 throw new Error(`Hash function ${passwordHashFunction} is unknown`);
@@ -310,7 +316,12 @@ class CryptoLib {
         encrypted = Buffer.from(encrypted, 'hex');
         salt = !salt || Buffer.from(salt, 'hex');
 
-        const {key} = this.createKey(keyAlgo, password, salt, hashOptions);
+        const {key} = this.createKey(
+            keyAlgo,
+            password,
+            salt,
+            hashOptions
+        );
 
         const decipher = crypto.createDecipheriv(ALGO, key, iv);
         try {

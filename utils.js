@@ -21,6 +21,10 @@ function GCD(arrNumbers) {
     return x;
 }
 
+const createPeerTag = (nConciliumId) => {
+    return `wg${nConciliumId}`;
+};
+
 const deepCloneObject = (objToClone) => {
     return v8.deserialize(v8.serialize(objToClone));
 };
@@ -250,8 +254,9 @@ module.exports = {
             {name: "walletSupport", type: Boolean, multiple: false},
             {name: "listWallets", type: Boolean, multiple: false},
             {name: "localDevNode", type: Boolean, multiple: false},
-            {name: "rebuildDb", type: Boolean, multiple: false},
             {name: "apiConfig", type: String, multiple: false},
+            {name: "rebuildDb", type: Boolean, multiple: false},
+            {name: "whitelistedAddr", type: String, multiple: true}
         ];
         return commandLineArgs(optionDefinitions, {camelCase: true});
     },
@@ -291,5 +296,6 @@ module.exports = {
     decryptPkFileContent,
     mapEnvToOptions,
     mapOptionsToNodeParameters,
-    GCD
+    GCD,
+    createPeerTag
 };

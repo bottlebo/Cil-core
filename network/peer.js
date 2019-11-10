@@ -1,7 +1,7 @@
 const EventEmitter = require('events');
 const assert = require('assert');
 const debug = require('debug')('peer:');
-const {sleep} = require('../utils');
+const {sleep, createPeerTag} = require('../utils');
 const Tick = require('tick-tock');
 
 /**
@@ -57,6 +57,8 @@ module.exports = (factory) => {
             } else {
                 throw new Error('Pass connection or peerInfo to create peer');
             }
+
+            this._whitelisted = false;
         }
 
         get amountBytes() {
@@ -155,10 +157,6 @@ module.exports = (factory) => {
             return witnessCap.data.toString('hex');
         }
 
-        get witnessLoadDone() {
-            return !this.disconnected && this._persistent && Array.isArray(this._tags) && this._tags.length;
-        }
-
         get offsetDelta() {
             return this._msecOffsetDelta;
         }
@@ -176,6 +174,10 @@ module.exports = (factory) => {
             return this._bannedTill;
         }
 
+        witnessLoadDone(nConciliumId) {
+            return !this.disconnected && this._persistent && this._tags.has(createPeerTag(nConciliumId));
+        }
+
         /**
          * Update capabilities & canonical port from MSG_VERSION
          *
@@ -186,6 +188,14 @@ module.exports = (factory) => {
             this._peerInfo.port = peerInfo.port;
         }
 
+        markAsWhitelisted() {
+            this._whitelisted = true;
+        }
+
+        isWhitelisted() {
+            return this._whitelisted;
+        }
+
         /**
          * this means peer was disconnected because we wish to connect to various nodes
          * but if there are no other peer (small net) - we'll reconnect after PEER_RESTRICT_TIME interval
@@ -193,7 +203,7 @@ module.exports = (factory) => {
          * @returns {boolean}
          */
         isRestricted() {
-            return this._restrictedTill > Date.now();
+            return !this._persistent && this._restrictedTill > Date.now();
         }
 
         isBanned() {
@@ -208,13 +218,11 @@ module.exports = (factory) => {
         }
 
         addTag(tag) {
-            this._tags.push(tag);
+            this._tags.add(tag);
         }
 
         hasTag(tag) {
-
-            // if tag === undefined - return true!
-            return tag === undefined || this._tags.includes(tag);
+            return tag === undefined || this._tags.has(tag);
         }
 
         isAlive() {
@@ -229,10 +237,10 @@ module.exports = (factory) => {
             }
         }
 
-        async witnessLoaded() {
+        async witnessLoaded(nConciliumId) {
             for (let i = 0; i < Constants.PEER_QUERY_TIMEOUT / 100; i++) {
                 await sleep(100);
-                if (this.witnessLoadDone) break;
+                if (this.witnessLoadDone(nConciliumId)) break;
             }
         }
 
@@ -335,6 +343,8 @@ module.exports = (factory) => {
         }
 
         ban() {
+            if (this.isWhitelisted()) return;
+
             this._updateMisbehave(Constants.BAN_PEER_SCORE);
             this._bannedTill = Date.now() + Constants.BAN_PEER_TIME;
             logger.log(`Peer banned till ${new Date(this._bannedTill)}`);
@@ -373,7 +383,7 @@ module.exports = (factory) => {
         }
 
         _cleanup() {
-            this._tags = [];
+            this._tags = new Set();
             this._connection = undefined;
 
             this._handshakeDone = false;
