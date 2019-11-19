@@ -1,9 +1,6 @@
-//Dumper = require('./dumper')
+module.exports = (Transaction, Worker) => {
 
-//
-module.exports = (Transaction, Dumper) => {
-
-  return class BlockDumper extends Dumper {
+  return class BlockWorker extends Worker {
     constructor(options) {
       super(options);
 
@@ -11,9 +8,6 @@ module.exports = (Transaction, Dumper) => {
         ...options
       };
       this.path = 'blocks.dump'
-
-      //console.log(this)
-      //
     }
     async dump(block, blockInfo) {
       //...

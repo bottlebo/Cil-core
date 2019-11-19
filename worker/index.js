@@ -1,11 +1,11 @@
-const DumperWrapper = require('./dumper');
-const BlockDumperWrapper = require('./blockDumper');
+const WorkerWrapper = require('./worker');
+const BlockWorkerWrapper = require('./blockWorker');
 
 module.exports = (factory) => {
   const {Constants, Crypto, Block, Transaction, Inventory, ArrayOfHashes, Mutex} = factory;
-  const Dumper = DumperWrapper(Mutex);
+  const Worker = WorkerWrapper(Mutex);
   return {
-    Dumper,
-    BlockDumper: BlockDumperWrapper(Transaction, Dumper)
+    Worker,
+    BlockWorker: BlockWorkerWrapper(Transaction, Worker)
   }
 };

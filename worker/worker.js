@@ -6,7 +6,7 @@ var fs = require('fs-ext');
 
 module.exports = (Mutex) => {
   
-  return class Dumper {
+  return class Worker {
     constructor(options) {
       options = {
         ...options
