@@ -48,8 +48,10 @@ const RpcWrapper = require('./node/rpc');
 const AppWrapper = require('./node/app');
 
 const StorageWrapper = require('./storage/persistentStorage');
-const ApiWrapper = require('./api/api')
-const WorkerWrapper = require('./worker/index')
+const ApiWrapper = require('./api/api');
+const WorkerWrapper = require('./worker/index');
+const ConverterWrapper = require('./dto/converter');
+
 const PatchWrapper = require('./storage/patch');
 const PendingBlocksManagerWrapper = require('./node/pendingBlocksManager');
 const MainDagWrapper = require('./node/mainDag');
@@ -117,9 +119,10 @@ class Factory {
                 this._peerImplementation = PeerWrapper(this);
                 this._peerManagerImplemetation = PeerManagerWrapper(this);
                 this._patchImplementation = PatchWrapper(this);
+
+                this._converterImplementation = ConverterWrapper(this);
                 this._apiImplementation = ApiWrapper(this);
                 this._workerImplementation = WorkerWrapper(this);
-
                 this._storageImplementation = StorageWrapper(this);
                 this._bftImplementation = BftWrapper(this);
                 this._mempoolImplementation = MempoolWrapper(this);
@@ -157,6 +160,11 @@ class Factory {
     get Worker() {
         return this._workerImplementation;
     }
+
+    get Converter() {
+        return this._converterImplementation;
+    }
+
     get version() {
         const arrSubversions = pack.version.split('.');
         return parseInt(arrSubversions[0]) * Math.pow(2, 16) +
