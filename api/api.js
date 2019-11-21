@@ -8,6 +8,10 @@ module.exports = (factory, factoryOptions) => {
       const config = configs[options.apiConfig];
       if (config) {
         axios.defaults.baseURL = config.baseURL;
+        if (options.apiUser && options.apiPassword) {
+          const auth = 'Basic ' + new Buffer.from(options.apiUser + ':' + options.apiPassword).toString('base64');
+          axios.defaults.headers.common['Authorization'] = auth;
+        }
       }
     }
     async saveBlock(block, blockInfo) {
@@ -40,7 +44,6 @@ module.exports = (factory, factoryOptions) => {
           }
         })
       }
-      //console.log(data);
 
       await axios.post('Block', data)
         .catch(error => {
@@ -76,10 +79,43 @@ module.exports = (factory, factoryOptions) => {
         });
     }
     async deleteUtxos(arrHash) {
-      await axios.delete(`Utxo`, {data:arrHash})
+      await axios.delete(`Utxo`, {data: arrHash})
         .catch(error => {
           console.log(error);
         });
+    }
+    async saveContracts(arrContract) {
+      const data = arrContract.map(objContract => ({
+        address: objContract.strContractAddr,
+        code: objContract.contract.getCode(),
+        data: JSON.stringify(objContract.contract.getData()),
+        conciliumId: objContract.contract.getConciliumId(),
+        balance: objContract.contract.getBalance()
+      }));
+      await axios.post('Contract', data)
+        .catch(error => {
+          console.log(error);
+        });
+    }
+    async saveReceipts(arrReceipts) {
+      let data = arrReceipts.map(obj => {
+        let objReceipt = obj.receipt.toObject();
+        let from = obj.from;
+        if (objReceipt.internalTxns.length)
+          return {
+            internalTxns: [...objReceipt.internalTxns],
+            coins: [...objReceipt.coins.map(coin => ({amount: coin.amount, receiverAddr: coin.receiverAddr.toString('hex')}))],
+            from: from,
+            status: 'internal'
+          }
+      });
+      data = data.filter(r => r)
+      if (data.length) {
+        await axios.post('Receipt', data)
+          .catch(error => {
+            console.log(error);
+          });
+      }
     }
   }
 }
