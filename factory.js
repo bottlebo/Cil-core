@@ -50,7 +50,7 @@ const AppWrapper = require('./node/app');
 const StorageWrapper = require('./storage/persistentStorage');
 const ApiWrapper = require('./api/api');
 const WorkerWrapper = require('./worker/index');
-const ConverterWrapper = require('./dto/converter');
+const DtoSerializerWrapper = require('./dto/dtoSerializer');
 
 const PatchWrapper = require('./storage/patch');
 const PendingBlocksManagerWrapper = require('./node/pendingBlocksManager');
@@ -120,7 +120,7 @@ class Factory {
                 this._peerManagerImplemetation = PeerManagerWrapper(this);
                 this._patchImplementation = PatchWrapper(this);
 
-                this._converterImplementation = ConverterWrapper(this);
+                this._dtoSerializerImplementation = DtoSerializerWrapper(this);
                 this._apiImplementation = ApiWrapper(this);
                 this._workerImplementation = WorkerWrapper(this);
                 this._storageImplementation = StorageWrapper(this);
@@ -161,8 +161,8 @@ class Factory {
         return this._workerImplementation;
     }
 
-    get Converter() {
-        return this._converterImplementation;
+    get DtoSerializer() {
+        return this._dtoSerializerImplementation;
     }
 
     get version() {

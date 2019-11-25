@@ -1,4 +1,4 @@
-module.exports = (Converter, Worker) => {
+module.exports = (DtoSerializer, Worker) => {
 
   return class BlockWorker extends Worker {
     constructor(options) {
@@ -11,7 +11,7 @@ module.exports = (Converter, Worker) => {
     }
     async dump(block, blockInfo) {
       //...
-      const data = Converter.toBlockDto(block, blockInfo);
+      const data = DtoSerializer.toBlockDto(block, blockInfo);
       await this._dump(data);
     }
   }
