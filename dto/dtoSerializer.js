@@ -3,7 +3,7 @@ module.exports = (factory) => {
 
   return class DtoSerializer {
 
-    toReceiptDto(obj) {
+    static toReceiptDto(obj) {
       let objReceipt = obj.receipt.toObject();
       let from = obj.from;
       if (objReceipt.internalTxns.length)
@@ -11,10 +11,10 @@ module.exports = (factory) => {
           internalTxns: [...objReceipt.internalTxns],
           coins: [...objReceipt.coins.map(coin => ({amount: coin.amount, receiverAddr: coin.receiverAddr.toString('hex')}))],
           from: from,
-          coinsUsed: receipt.coinsUsed,
-          status: receipt.status,
-          message: receipt.message ? receipt.message : '',
-          contractAddress: receipt.contractAddress.toString('hex')
+          coinsUsed: objReceipt.coinsUsed,
+          status: objReceipt.status,
+          message: objReceipt.message ? objReceipt.message : '',
+          contractAddress: objReceipt.contractAddress.toString('hex')
         }
     }
 
@@ -22,7 +22,7 @@ module.exports = (factory) => {
      * 
      * @param {*} objContract 
      */
-    toContractDto(objContract) {
+    static toContractDto(objContract) {
       return {
         address: objContract.strContractAddr,
         code: objContract.contract.getCode(),
