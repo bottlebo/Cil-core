@@ -5,21 +5,25 @@ const Tick = require('tick-tock');
 var fs = require('fs-ext');
 
 module.exports = (Mutex) => {
-  
+
   return class Worker {
-    constructor(options) {
+    constructor(options, file, timername) {
       options = {
         ...options
       };
       const {dumpPath} = options;
       this._pathPrefix = path.resolve(dumpPath || DUMP_PATH_PREFIX);
-      this._path = '';
+      this._path = `${this._pathPrefix}/${file}`;
       this._fd = null;
       this._pool = [];
       this._locked = false;
+      this._timerName = timername;
+
       this._mutex = new Mutex();
       this._dumpTimer = new Tick(this);
-      this._dumpTimer.setInterval('dump_timer', this._flush, DUMP_INTERVAL);
+      if (this._timerName) {
+        this._dumpTimer.setInterval(this._timerName, this._flush, DUMP_INTERVAL);
+      }
     }
     set path(file) {
       this._path = `${this._pathPrefix}/${file}`;
@@ -27,6 +31,13 @@ module.exports = (Mutex) => {
     async _dump(obj) {
       const _lock = await this._mutex.acquire('pool');
       this._pool.push(JSON.stringify(obj));
+      this._mutex.release(_lock);
+    }
+    async _dumpArray(arrObj) {
+      const _lock = await this._mutex.acquire('pool');
+      for (const obj of arrObj) {
+        this._pool.push(JSON.stringify(obj));
+      }
       this._mutex.release(_lock);
     }
     async _flush() {

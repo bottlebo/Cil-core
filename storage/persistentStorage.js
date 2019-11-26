@@ -52,7 +52,7 @@ module.exports = (factory, factoryOptions) => {
         Constants, Block, BlockInfo, UTXO, ArrayOfHashes, ArrayOfAddresses, Contract,
         TxReceipt, BaseConciliumDefinition, ConciliumRr, ConciliumPos, Peer, PatchDB, Api, Worker
     } = factory;
-    const {BlockWorker} = Worker;
+    const {BlockWorker, UtxoWorker, ContractWorker, ReceiptWorker} = Worker;
     return class Storage extends EventEmitter {
         constructor(options) {
             options = {
@@ -101,6 +101,9 @@ module.exports = (factory, factoryOptions) => {
                 this._api = new Api({...options});
             }
             this._blockWorker = new BlockWorker({...options});
+            this._utxoWorker = new UtxoWorker({...options});
+            this._contractWorker = new ContractWorker({...options});
+            this._receiptWorker = new ReceiptWorker({...options});
         }
 
         /**
@@ -229,7 +232,7 @@ module.exports = (factory, factoryOptions) => {
             if (this._api) {
                 await this._api.saveBlock(block, blockInfo);
             }
-            this._blockWorker.dump(block, blockInfo);
+            await this._blockWorker.dump(block, blockInfo);
             await this.saveBlockInfo(blockInfo);
 
             if (this._buildTxIndex) {
@@ -442,6 +445,8 @@ module.exports = (factory, factoryOptions) => {
 
                     if (this._walletSupport) await this._walletUtxoCheck(utxo);
                 }
+                if (arrUtxos.length)
+                    await this._utxoWorker.dump(arrUtxos);
                 if (this._api) {
                     if (arrUtxos.length) {
                         await this._api.saveUtxos(arrUtxos);
@@ -461,6 +466,9 @@ module.exports = (factory, factoryOptions) => {
                     arrOps.push({type: 'put', key, value: contract.encode()});
                     arrContract.push({strContractAddr, contract});
                 }
+                if (arrContract.length) {
+                    await this._contractWorker.dump(arrContract);
+                }
                 if (this._api && arrContract.length) {
                     await this._api.saveContracts(arrContract);
                 }
@@ -475,6 +483,9 @@ module.exports = (factory, factoryOptions) => {
                         await this._storeInternalTxnsIndex(Buffer.from(strTxHash, 'hex'), receipt.getInternalTxns());
                     }
                     arrReceipt.push({from:strTxHash, receipt:receipt})
+                }
+                if (arrReceipt.length) {
+                    await this._receiptWorker.dump(arrReceipt);
                 }
                 if (this._api && arrReceipt.length) {
                     await this._api.saveReceipts(arrReceipt);
