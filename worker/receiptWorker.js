@@ -12,7 +12,7 @@ module.exports = (DtoSerializer, Worker) => {
     }
     async dump(arrReceipts) {
       //...
-      const data = arrReceipts.map(obj => DtoSerializer.toReceiptDto(obj));
+      let data = arrReceipts.map(obj => DtoSerializer.toReceiptDto(obj));
       data = data.filter(r => r);
       if (data.length) {
         await this._dumpArray(data);
