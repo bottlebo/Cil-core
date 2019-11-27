@@ -52,7 +52,7 @@ module.exports = (factory, factoryOptions) => {
         Constants, Block, BlockInfo, UTXO, ArrayOfHashes, ArrayOfAddresses, Contract,
         TxReceipt, BaseConciliumDefinition, ConciliumRr, ConciliumPos, Peer, PatchDB, Api, Worker
     } = factory;
-    const {BlockWorker, UtxoWorker, ContractWorker, ReceiptWorker} = Worker;
+    const {BlockWorker, UtxoWorker, ContractWorker, ReceiptWorker, BlockStateWorker} = Worker;
     return class Storage extends EventEmitter {
         constructor(options) {
             options = {
@@ -104,6 +104,7 @@ module.exports = (factory, factoryOptions) => {
             this._utxoWorker = new UtxoWorker({...options});
             this._contractWorker = new ContractWorker({...options});
             this._receiptWorker = new ReceiptWorker({...options});
+            this._blockStateWorker = new BlockStateWorker({...options});
         }
 
         /**
@@ -328,6 +329,7 @@ module.exports = (factory, factoryOptions) => {
             if (this._api) {
                 await this._api.setBlockState(blockInfo.getHash(), blockInfo.getState());
             }
+            await this._blockStateWorker.dump(blockInfo.getHash(), blockInfo.getState());
         }
 
         /**
