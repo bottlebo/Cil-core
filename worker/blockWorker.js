@@ -2,9 +2,7 @@ module.exports = (DtoSerializer, Worker) => {
 
   return class BlockWorker extends Worker {
     constructor(options) {
-      const _file = 'blocks.dump';
-      const _timerName = 'block_timer';
-      super(options, _file, _timerName);
+      super(options, 'blocks');
 
       this.options = {
         ...options

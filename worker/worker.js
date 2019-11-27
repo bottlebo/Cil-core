@@ -7,34 +7,30 @@ var fs = require('fs-ext');
 module.exports = (Mutex) => {
 
   return class Worker {
-    constructor(options, file, timername) {
+    constructor(options, key) {
       options = {
         ...options
       };
       const {dumpPath} = options;
+
       this._pathPrefix = path.resolve(dumpPath || DUMP_PATH_PREFIX);
-      this._path = `${this._pathPrefix}/${file}`;
+      this._path = `${this._pathPrefix}/${key}.dump`;
+      this._lockName = `${key}_lock`;
       this._fd = null;
       this._pool = [];
       this._locked = false;
-      this._timerName = timername;
 
       this._mutex = new Mutex();
       this._dumpTimer = new Tick(this);
-      if (this._timerName) {
-        this._dumpTimer.setInterval(this._timerName, this._flush, DUMP_INTERVAL);
-      }
-    }
-    set path(file) {
-      this._path = `${this._pathPrefix}/${file}`;
+      this._dumpTimer.setInterval(`${key}_timer`, this._flush, DUMP_INTERVAL);
     }
     async _dump(obj) {
-      const _lock = await this._mutex.acquire('pool');
+      const _lock = await this._mutex.acquire(this._lockName);
       this._pool.push(JSON.stringify(obj));
       this._mutex.release(_lock);
     }
     async _dumpArray(arrObj) {
-      const _lock = await this._mutex.acquire('pool');
+      const _lock = await this._mutex.acquire(this._lockName);
       for (const obj of arrObj) {
         this._pool.push(JSON.stringify(obj));
       }
@@ -45,7 +41,7 @@ module.exports = (Mutex) => {
       if (this._pool.length) {
         let _pool = [];
 
-        const _lock = await this._mutex.acquire('pool');
+        const _lock = await this._mutex.acquire(this._lockName);
         _pool = [...this._pool];
         this._pool = [];
         this._mutex.release(_lock);
@@ -55,7 +51,7 @@ module.exports = (Mutex) => {
           fs.flock(this._fd, 'ex', async (err) => {
             if (err) {
               console.log('-Error:', err);
-              const _lock = await this._mutex.acquire('pool');
+              const _lock = await this._mutex.acquire(this._lockName);
               this._pool = _pool.concat(this._pool);
               this._mutex.release(_lock);
             }
@@ -63,7 +59,7 @@ module.exports = (Mutex) => {
               fs.appendFile(this._fd, _pool.join('\n') + '\n', async (err) => {
                 if (err) {
                   console.log('*Error:', err)
-                  const _lock = await this._mutex.acquire('pool');
+                  const _lock = await this._mutex.acquire(this._lockName);
                   this._pool = _pool.concat(this._pool);
                   this._mutex.release(_lock);
                 }
@@ -75,7 +71,7 @@ module.exports = (Mutex) => {
           });
         }
         catch (err) {
-          const _lock = await this._mutex.acquire('pool');
+          const _lock = await this._mutex.acquire(this._lockName);
           this._pool = _pool.concat(this._pool);
           this._mutex.release(_lock);
 

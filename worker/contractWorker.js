@@ -2,9 +2,7 @@ module.exports = (DtoSerializer, Worker) => {
 
   return class ContractWorker extends Worker {
     constructor(options) {
-      const _file = 'contracts.dump';
-      const _timerName = 'contract_timer';
-      super(options, _file, _timerName);
+      super(options, 'contracts');
 
       this.options = {
         ...options
