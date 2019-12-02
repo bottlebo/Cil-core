@@ -4,6 +4,8 @@ const UtxoWorkerWrapper = require('./utxoWorker');
 const ContractWorkerWrapper = require('./contractWorker');
 const ReceiptWorkerWrapper = require('./receiptWorker');
 const BlockStateWorkerWrapper = require('./blockStateWorker');
+const RemoveBlockWorkerWrapper = require('./removeBlockWorker');
+const DeleteUtxoWorkerWrapper = require('./deleteUtxoWorker');
 
 module.exports = (factory) => {
   const {DtoSerializer, Mutex} = factory;
@@ -14,6 +16,8 @@ module.exports = (factory) => {
     UtxoWorker: UtxoWorkerWrapper(DtoSerializer, Worker),
     ContractWorker: ContractWorkerWrapper(DtoSerializer, Worker),
     ReceiptWorker: ReceiptWorkerWrapper(DtoSerializer, Worker),
-    BlockStateWorker: BlockStateWorkerWrapper(DtoSerializer, Worker),
+    BlockStateWorker: BlockStateWorkerWrapper(Worker),
+    RemoveBlockWorker: RemoveBlockWorkerWrapper(Worker),
+    DeleteUtxoWorker: DeleteUtxoWorkerWrapper(Worker),
   }
 };

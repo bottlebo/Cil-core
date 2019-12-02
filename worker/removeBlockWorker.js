@@ -1,16 +1,16 @@
 module.exports = (Worker) => {
 
-  return class BlockStateWorker extends Worker {
+  return class RemoveBlockWorker extends Worker {
     constructor(options) {
-      super(options, 'blockstate');
+      super(options, 'removeblock');
 
       this.options = {
         ...options
       };
     }
-    async dump(hash, state) {
+    async dump(hash) {
       //...
-      const data = {hash, state};
+      const data = {hash};
       await this._dump(data);
     }
   }
