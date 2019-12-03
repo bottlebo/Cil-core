@@ -259,6 +259,8 @@ module.exports = {
             {name: "whitelistedAddr", type: String, multiple: true},
             {name: "apiUser", type: String, multiple: false},
             {name: "apiPassword", type: String, multiple: false},
+            {name: "workerConfig", type: String, multiple: false},
+
         ];
         return commandLineArgs(optionDefinitions, {camelCase: true});
     },

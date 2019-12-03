@@ -103,14 +103,15 @@ module.exports = (factory, factoryOptions) => {
             if (options.apiConfig) {
                 this._api = new Api({...options});
             }
-            this._blockWorker = new BlockWorker({...options});
-            this._utxoWorker = new UtxoWorker({...options});
-            this._contractWorker = new ContractWorker({...options});
-            this._receiptWorker = new ReceiptWorker({...options});
-            this._blockStateWorker = new BlockStateWorker({...options});
-            this._removeBlockWorker = new RemoveBlockWorker({...options});
-            this._deleteUtxoWorker = new DeleteUtxoWorker({...options});
-
+            else if (options.workerConfig) {
+                this._blockWorker = new BlockWorker({...options});
+                this._utxoWorker = new UtxoWorker({...options});
+                this._contractWorker = new ContractWorker({...options});
+                this._receiptWorker = new ReceiptWorker({...options});
+                this._blockStateWorker = new BlockStateWorker({...options});
+                this._removeBlockWorker = new RemoveBlockWorker({...options});
+                this._deleteUtxoWorker = new DeleteUtxoWorker({...options});
+            }
         }
 
         /**
@@ -236,15 +237,18 @@ module.exports = (factory, factoryOptions) => {
 
             // save blockInfo
             if (!blockInfo) blockInfo = new BlockInfo(block.header);
-            if (this._api) {
-                await this._api.saveBlock(block, blockInfo);
-            }
-            await this._blockWorker.dump(block, blockInfo);
             await this.saveBlockInfo(blockInfo);
 
             if (this._buildTxIndex) {
                 await this._storeTxnsIndex(Buffer.from(block.getHash(), 'hex'), block.getTxHashes());
             }
+            if (this._api) {
+                await this._api.saveBlock(block, blockInfo);
+            }
+            if (this._blockWorker) {
+                await this._blockWorker.dump(block, blockInfo);
+            }
+
         }
 
         /**
@@ -281,7 +285,9 @@ module.exports = (factory, factoryOptions) => {
             if (this._api) {
                 await this._api.removeBlock(blockHash);
             }
-            await this._removeBlockWorker.dump(blockHash);
+            if (this._removeBlockWorker) {
+                await this._removeBlockWorker.dump(blockHash);
+            }
 
         }
 
@@ -337,7 +343,9 @@ module.exports = (factory, factoryOptions) => {
             if (this._api) {
                 await this._api.setBlockState(blockInfo.getHash(), blockInfo.getState());
             }
-            await this._blockStateWorker.dump(blockInfo.getHash(), blockInfo.getState());
+            if (this._blockStateWorker) {
+                await this._blockStateWorker.dump(blockInfo.getHash(), blockInfo.getState());
+            }
         }
 
         /**
@@ -455,9 +463,9 @@ module.exports = (factory, factoryOptions) => {
 
                     if (this._walletSupport) await this._walletUtxoCheck(utxo);
                 }
-                if (arrUtxos.length)
+                if (this._utxoWorker && arrUtxos.length)
                     await this._utxoWorker.dump(arrUtxos);
-                if(arrDelUtxo.length) {
+                if (this._deleteUtxoWorker && arrDelUtxo.length) {
                     await this._deleteUtxoWorker.dump(arrDelUtxo);
                 }
                 if (this._api) {
@@ -479,7 +487,7 @@ module.exports = (factory, factoryOptions) => {
                     arrOps.push({type: 'put', key, value: contract.encode()});
                     arrContract.push({strContractAddr, contract});
                 }
-                if (arrContract.length) {
+                if (this._contractWorker && arrContract.length) {
                     await this._contractWorker.dump(arrContract);
                 }
                 if (this._api && arrContract.length) {
@@ -495,9 +503,9 @@ module.exports = (factory, factoryOptions) => {
                     if (this._buildTxIndex) {
                         await this._storeInternalTxnsIndex(Buffer.from(strTxHash, 'hex'), receipt.getInternalTxns());
                     }
-                    arrReceipt.push({from:strTxHash, receipt:receipt})
+                    arrReceipt.push({from: strTxHash, receipt: receipt})
                 }
-                if (arrReceipt.length) {
+                if (this._receiptWorker && arrReceipt.length) {
                     await this._receiptWorker.dump(arrReceipt);
                 }
                 if (this._api && arrReceipt.length) {
@@ -828,21 +836,21 @@ module.exports = (factory, factoryOptions) => {
 
             const arrRecords = [];
             await new Promise(resolve => {
-                    this._db
-                        .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
-                        .on('data', async data => {
+                this._db
+                    .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
+                    .on('data', async data => {
 
-                            // get hash from key (slice PREFIX)
-                            const hash = data.key.slice(1);
-                            const utxo = new UTXO({txHash: hash, data: data.value});
-                            for (let strAddr of this._arrStrWalletAddresses) {
-                                const arrIndexes = utxo.getOutputsForAddress(strAddr);
-                                //                                if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
-                                if (arrIndexes.length) arrRecords.push({strAddr, hash});
-                            }
-                        })
-                        .on('close', () => resolve());
-                }
+                        // get hash from key (slice PREFIX)
+                        const hash = data.key.slice(1);
+                        const utxo = new UTXO({txHash: hash, data: data.value});
+                        for (let strAddr of this._arrStrWalletAddresses) {
+                            const arrIndexes = utxo.getOutputsForAddress(strAddr);
+                            //                                if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
+                            if (arrIndexes.length) arrRecords.push({strAddr, hash});
+                        }
+                    })
+                    .on('close', () => resolve());
+            }
             );
             for (const {strAddr, hash} of arrRecords) {
                 await this._walletWriteAddressUtxo(strAddr, hash);
@@ -920,7 +928,7 @@ module.exports = (factory, factoryOptions) => {
                         r({key: key, value: value});
                     });
                 });
-                if (next === undefined) { break; }
+                if (next === undefined) {break;}
                 if ((yield next) === $_terminated) {
                     await new Promise((r, x) => it.end((e) => (e ? x(x) : r())));
                     return;
@@ -945,7 +953,7 @@ module.exports = (factory, factoryOptions) => {
                         resolve({key: key, value: value});
                     });
                 });
-                if (next === undefined) { break; }
+                if (next === undefined) {break;}
                 if ((yield next) === $_terminated) {
                     await new Promise((resolve, reject) => it.end((e) => (e ? reject(reject) : resolve())));
                     return;

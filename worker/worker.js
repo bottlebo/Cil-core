@@ -2,18 +2,20 @@ const path = require('path');
 const DUMP_PATH_PREFIX = './swap';
 const DUMP_INTERVAL = 1000;
 const Tick = require('tick-tock');
-var fs = require('fs-ext');
+const fs = require('fs-ext');
+const configs = require('../config/worker.config.json');
 
 module.exports = (Mutex) => {
 
   return class Worker {
     constructor(options, key) {
-      options = {
-        ...options
-      };
-      const {dumpPath} = options;
-
-      this._pathPrefix = path.resolve(dumpPath || DUMP_PATH_PREFIX);
+      let _dumpPath, _dumpInterval;
+      const config = configs[options.workerConfig];
+      if(config) {
+        _dumpPath = config.dumpPath;
+        _dumpInterval = config.dumpInterval;
+      }
+      this._pathPrefix = path.resolve(_dumpPath || DUMP_PATH_PREFIX);
       this._path = `${this._pathPrefix}/${key}.dump`;
       this._lockName = `${key}_lock`;
       this._fd = null;
@@ -22,7 +24,7 @@ module.exports = (Mutex) => {
 
       this._mutex = new Mutex();
       this._dumpTimer = new Tick(this);
-      this._dumpTimer.setInterval(`${key}_timer`, this._flush, DUMP_INTERVAL);
+      this._dumpTimer.setInterval(`${key}_timer`, this._flush, _dumpInterval || DUMP_INTERVAL);
     }
     async _dump(obj) {
       const _lock = await this._mutex.acquire(this._lockName);
