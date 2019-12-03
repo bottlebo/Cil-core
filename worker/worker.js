@@ -52,7 +52,7 @@ module.exports = (Mutex) => {
           this._locked = true;
           fs.flock(this._fd, 'ex', async (err) => {
             if (err) {
-              console.log('-Error:', err);
+              console.log('Error:', err);
               const _lock = await this._mutex.acquire(this._lockName);
               this._pool = _pool.concat(this._pool);
               this._mutex.release(_lock);
@@ -60,7 +60,7 @@ module.exports = (Mutex) => {
             else {
               fs.appendFile(this._fd, _pool.join('\n') + '\n', async (err) => {
                 if (err) {
-                  console.log('*Error:', err)
+                  console.log('Error:', err)
                   const _lock = await this._mutex.acquire(this._lockName);
                   this._pool = _pool.concat(this._pool);
                   this._mutex.release(_lock);
