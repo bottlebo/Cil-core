@@ -26,15 +26,27 @@ module.exports = (Mutex) => {
       this._dumpTimer = new Tick(this);
       this._dumpTimer.setInterval(`${key}_timer`, this._flush, _dumpInterval || DUMP_INTERVAL);
     }
-    async _dump(obj) {
+    async _dumpObj(obj) {
       const _lock = await this._mutex.acquire(this._lockName);
       this._pool.push(JSON.stringify(obj));
       this._mutex.release(_lock);
     }
-    async _dumpArray(arrObj) {
+    async _dumpStr(str) {
+      const _lock = await this._mutex.acquire(this._lockName);
+      this._pool.push(str);
+      this._mutex.release(_lock);
+    }
+    async _dumpObjectArray(arrObj) {
       const _lock = await this._mutex.acquire(this._lockName);
       for (const obj of arrObj) {
         this._pool.push(JSON.stringify(obj));
+      }
+      this._mutex.release(_lock);
+    }
+    async _dumpStrArray(arrStr) {
+      const _lock = await this._mutex.acquire(this._lockName);
+      for (const str of arrStr) {
+        this._pool.push(str);
       }
       this._mutex.release(_lock);
     }

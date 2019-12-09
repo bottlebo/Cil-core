@@ -9,9 +9,8 @@ module.exports = (Worker) => {
       };
     }
     async dump(hash, state) {
-      //...
       const data = {hash, state};
-      await this._dump(data);
+      await this._dumpObj(data);
     }
   }
 }

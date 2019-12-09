@@ -9,11 +9,10 @@ module.exports = (DtoSerializer, Worker) => {
       };
     }
     async dump(arrReceipts) {
-      //...
       let data = arrReceipts.map(obj => DtoSerializer.toReceiptDto(obj));
       data = data.filter(r => r);
       if (data.length) {
-        await this._dumpArray(data);
+        await this._dumpObjectArray(data);
       }
     }
   }

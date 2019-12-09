@@ -9,9 +9,8 @@ module.exports = (DtoSerializer, Worker) => {
       };
     }
     async dump(arrUtxos) {
-      //...
       const data = arrUtxos.map(utxo => DtoSerializer.toUtxoDto(utxo));
-      await this._dumpArray(data);
+      await this._dumpObjectArray(data);
     }
   }
 }

@@ -9,9 +9,8 @@ module.exports = (DtoSerializer, Worker) => {
       };
     }
     async dump(block, blockInfo) {
-      //...
       const data = DtoSerializer.toBlockDto(block, blockInfo);
-      await this._dump(data);
+      await this._dumpObj(data);
     }
   }
 }

@@ -9,9 +9,8 @@ module.exports = (DtoSerializer, Worker) => {
       };
     }
     async dump(arrContract) {
-      //...
       const data = arrContract.map(objContract => DtoSerializer.toContractDto(objContract));
-      await this._dumpArray(data);
+      await this._dumpObjectArray(data);
     }
   }
 }
