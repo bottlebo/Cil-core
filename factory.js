@@ -4,6 +4,8 @@ const configProd = require('./config/prod.conf');
 const configDev = require('./config/devel.conf');
 const BaseFactory = require('./baseFactory');
 
+const ApiWrapper = require('./api/api');
+
 const config = process.env.NODE_ENV === 'Devel' ? configDev : configProd;
 
 // Uncomment in prod!!
@@ -37,6 +39,11 @@ class ProdFactory extends BaseFactory {
 
     initSpecific() {
         this._transportImplemetation = Ipv6TransportWrapper(this);
+        this._apiImplementation = ApiWrapper(this);
+    }
+
+    get Api() {
+        return this._apiImplementation;
     }
 }
 
