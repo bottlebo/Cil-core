@@ -371,11 +371,13 @@ module.exports = (factory) => {
                 debug(`BFT "${this._nonce}" round failed`);
                 this._nextRound(false);
             } else {
+                if (this._state === States.BLOCK) return;
+
                 this._concilium.adjustRound(consensusValue.roundNo);
                 this._state = States.BLOCK;
+                debug(`Proposer: ${this._concilium.getProposerAddress()}`);
                 if (this.shouldPublish()) {
-                    debug(
-                        `BFT "${this._nonce}" will create block! RoundNo: ${this._concilium.getRound()}`);
+                    debug(`We'll  create block! RoundNo: ${this._concilium.getRound()}`);
                     this.emit('createBlock');
                 }
             }
@@ -472,7 +474,7 @@ module.exports = (factory) => {
          * @return {boolean}
          */
         shouldPublish(proposer = this._wallet.address) {
-            return this._concilium.getProposerAddress(this._concilium.getRound()) === proposer;
+            return this._concilium.getProposerAddress() === proposer;
         }
 
         timeForWitnessBlock() {

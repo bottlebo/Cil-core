@@ -13,9 +13,6 @@ const BaseConciliumDefinition = require('./baseConciliumDefinition');
 //        // see base class
 //    },
 //
-//    // this means - can anybody join concilium or creator should add them
-//    isOpen: false,
-//
 //    // members information
 //    addresses: [
 //    ],
@@ -69,13 +66,13 @@ module.exports = ({Constants}) =>
          *
          * @returns {String}
          */
-        getProposerAddress(roundNo) {
+        getProposerAddress() {
             const arrAddresses = this.getAddresses();
-            const idx = roundNo % arrAddresses.length;
+            const idx = this.getRound() % arrAddresses.length;
             return arrAddresses[idx].toString('hex');
         }
 
-        getWitnessWeight(strAddress) {
+        getWitnessWeight() {
             return 1;
         }
 

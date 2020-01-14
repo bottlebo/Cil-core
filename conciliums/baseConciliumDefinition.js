@@ -10,6 +10,7 @@ const {deepCloneObject} = require('../utils');
 //const def = {
 //    conciliumId: 0, //     will be set by Concilium management contract
 //    type: Constants.CONCILIUM_TYPE_POS | Constants.CONCILIUM_TYPE_RR,
+//    isOpen: false, // this means - can anybody join concilium or creator should add them
 //    parameters: {
 //        fees: {
 //            feeTxSize: 111,
@@ -41,7 +42,9 @@ module.exports = class BaseConciliumDefinition {
                 document: []
             };
         }
-        this._data.parameters.isEnabled = true;
+
+        if (!this._data.parameters.hasOwnProperty('isEnabled')) this._data.parameters.isEnabled = true;
+        if (!this._data.hasOwnProperty('isOpen')) this._data.parameters.isOpen = false;
 
         this.changeSeed(0);
 
@@ -153,6 +156,8 @@ module.exports = class BaseConciliumDefinition {
     }
 
     adjustRound(nRoundNo) {
+        if (this._nRoundBase === 0 && this._nSeed !== 0) this.initRounds();
+
         const nRoundDiff = Math.abs(nRoundNo - this._nRoundBase);
         if (nRoundDiff < this._nSeqLength) this._nLocalRound = nRoundDiff;
     }

@@ -1,9 +1,7 @@
 const assert = require('assert');
-const typeforce = require('typeforce');
 const debugLib = require('debug');
 
-const {sleep, createPeerTag} = require('../utils');
-const types = require('../types');
+const {createPeerTag} = require('../utils');
 
 const debugWitness = debugLib('witness:app');
 const debugWitnessMsg = debugLib('witness:messages');
@@ -111,7 +109,7 @@ module.exports = (factory, factoryOptions) => {
                 try {
                     await this._connectWitness(peer, concilium);
                 } catch (e) {
-                    console.error(e.message);
+                    logger.error(e.message);
                 }
             }
         }
@@ -297,11 +295,14 @@ module.exports = (factory, factoryOptions) => {
                     logger.error(`Block ${block.hash()} already known!`);
                     return;
                 }
+
+                const lock = await this._mutex.acquire(['blockExec']);
                 try {
 
                     // check block without checking signatures
                     await this._verifyBlock(block, false);
                     if (await this._canExecuteBlock(block)) {
+                        this._processedBlock = block;
                         const patch = await this._execBlock(block);
                         consensus.processValidBlock(block, patch);
                     } else {
@@ -312,6 +313,8 @@ module.exports = (factory, factoryOptions) => {
                 } catch (e) {
                     logger.error(e);
                     consensus.invalidBlock();
+                } finally {
+                    this._mutex.release(lock);
                 }
             } else {
 
@@ -387,7 +390,7 @@ module.exports = (factory, factoryOptions) => {
             });
 
             consensus.on('commitBlock', async (block, patch) => {
-                const lock = await this._mutex.acquire(['createBlock']);
+                const lock = await this._mutex.acquire(['commitBlock']);
                 try {
                     const arrContracts = [...patch.getContracts()];
                     if (arrContracts.length) {
@@ -475,7 +478,7 @@ module.exports = (factory, factoryOptions) => {
             const consensusInstance = this._consensuses.get(conciliumId);
 
             // set my own view
-            consensusInstance.processMessage(msg);
+            if (consensusInstance) consensusInstance.processMessage(msg);
         }
 
         /**
@@ -492,9 +495,8 @@ module.exports = (factory, factoryOptions) => {
             let arrParents;
             let patchMerged;
 
-            const lock = await this._mutex.acquire(['blockExec', 'blockCreate']);
             try {
-                ({arrParents, patchMerged} = this._pendingBlocks.getBestParents(conciliumId));
+                ({arrParents, patchMerged} = await this._pendingBlocks.getBestParents(conciliumId));
                 patchMerged = patchMerged ? patchMerged : new PatchDB();
                 patchMerged.setConciliumId(conciliumId);
 
@@ -533,7 +535,6 @@ module.exports = (factory, factoryOptions) => {
             } catch (e) {
                 logger.error(`Failed to create block!`, e);
             } finally {
-                this._mutex.release(lock);
                 this._processedBlock = undefined;
             }
 

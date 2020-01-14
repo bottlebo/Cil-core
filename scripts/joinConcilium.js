@@ -1,8 +1,7 @@
 const url = require('url');
-const rp = require('request-promise');
 
 const factory = require('../factory');
-const {questionAsync, readPrivateKeyFromFile, prepareForStringifyObject} = require('../utils');
+const {questionAsync, readPrivateKeyFromFile, prepareForStringifyObject, queryRpc, getHttpData} = require('../utils');
 
 let urlApi;
 let urlRpc;
@@ -35,7 +34,7 @@ async function main() {
         throw new Error(`You want to deposit (${amount} coins). It's less than minumum (${nMinAmount})`);
     }
 
-    const fees = factory.Constants.fees.CONTRACT_INVOCATION_FEE + factory.Constants.fees.STORAGE_PER_BYTE_FEE * 100;
+    const fees = 4e4;
     const arrUtxos = await getUtxos(wallet.address);
     const {arrCoins} = gatherInputsForAmount(arrUtxos, amount + fees);
 
@@ -87,35 +86,12 @@ async function getUtxos(strAddress) {
 }
 
 async function queryApi(endpoint, strParam) {
-    const options = {
-        method: "GET",
-        rejectUnauthorized: false,
-        url: url.resolve(urlApi, `${endpoint}/${strParam}`),
-        json: true
-    };
-
-    const result = await rp(options);
+    const result = await getHttpData(url.resolve(urlApi, `${endpoint}/${strParam}`));
     return result;
 }
 
 async function sendTx(strTx) {
-    const options = {
-        method: "POST",
-        rejectUnauthorized: false,
-        url: urlRpc,
-        json: true,
-        body: {
-            jsonrpc: "2.0",
-            method: "sendRawTx",
-            params: {
-                strTx
-            },
-            id: 67
-        }
-    };
-
-    const result = await rp(options);
-    return result;
+    return queryRpc(urlRpc, 'sendRawTx', {strTx});
 }
 
 /**

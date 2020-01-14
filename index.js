@@ -14,7 +14,7 @@ process.on('warning', e => console.warn(e.stack));
 (async () => {
     await factory.asyncLoad();
 
-    console.log(`Using ${factory.Constants.strIdent} config`);
+    logger.log(`Using ${factory.Constants.strIdent} config`);
 
     // Read user-defined parameters
     const objUserParams = {
@@ -41,6 +41,9 @@ process.on('warning', e => console.warn(e.stack));
 
     // if there is rebuild task - program will terminate after completion!
     await rebuildDb(commonOptions);
+
+    // this will completely erase DB, and resync it from neighbors
+    await clearDb(commonOptions);
 
     let node;
     if (objUserParams.privateKey) {
@@ -94,6 +97,20 @@ async function rebuildDb(objCmdLineParams) {
     }
 }
 
+async function clearDb(objCmdLineParams) {
+    try {
+        const storage = new factory.Storage({...objCmdLineParams, mutex: new factory.Mutex()});
+        if (await storage.hasBlock('5cd32a04238a61a29d95ed48ce6b08ba2973b6fb0858446b76bb20c93e5492b4')) {
+            await storage.dropAllForReIndex(true);
+            console.log('Db cleared');
+        }
+        await storage.close();
+    } catch (e) {
+        console.error(e);
+        process.exit(1);
+    }
+}
+
 async function walletTasks(objCmdLineParams) {
     const {listWallets, reIndexWallet, watchAddress} = objCmdLineParams;
     if (!(listWallets || reIndexWallet || watchAddress)) return;
@@ -117,12 +134,12 @@ async function walletTasks(objCmdLineParams) {
 
     // -----------------------------
     async function taskListWallets(storage) {
-        const arrAddresses = await storage.getWallets();
+        const arrAddresses = await storage.getWalletsAddresses();
         if (!arrAddresses.length) {
             console.log('No addresses found in wallet');
         } else {
             console.log('Addresses found in wallets');
-            console.dir(await storage.getWallets(), {colors: true, depth: null});
+            console.dir(await storage.getWalletsAddresses(), {colors: true, depth: null});
         }
     }
 
