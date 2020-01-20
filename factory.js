@@ -4,8 +4,6 @@ const configProd = require('./config/prod.conf');
 const configDev = require('./config/devel.conf');
 const BaseFactory = require('./baseFactory');
 
-const ApiWrapper = require('./api/api');
-
 const config = process.env.NODE_ENV === 'Devel' ? configDev : configProd;
 
 // Uncomment in prod!!
