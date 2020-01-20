@@ -29,6 +29,7 @@ global.logger = {
 
 
 const Ipv6TransportWrapper = require('./network/ipv6Transport');
+const ApiWrapper = require('./api/api');
 
 class ProdFactory extends BaseFactory {
     constructor(options, objConstants) {
@@ -37,6 +38,11 @@ class ProdFactory extends BaseFactory {
 
     initSpecific() {
         this._transportImplemetation = Ipv6TransportWrapper(this);
+        this._apiImplementation = ApiWrapper(this);
+    }
+
+    get Api() {
+        return this._apiImplementation;
     }
 }
 
