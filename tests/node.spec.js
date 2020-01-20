@@ -460,6 +460,7 @@ describe('Node tests', async () => {
         const msg = new factory.Messages.MsgTx(tx);
 
         node._requestCache.request(tx.hash());
+        node._isInitialBlockLoading = sinon.fake.returns(false);
 
         try {
             await node._handleTxMessage(peer, msg);
@@ -2555,6 +2556,7 @@ describe('Node tests', async () => {
                 singleBlockRequested: sinon.fake(),
                 isGetBlocksSent: sinon.fake.returns(false)
             };
+            node._peerManager.getConnectedPeers = sinon.fake.returns([fakePeer]);
 
             const invToRequest = new factory.Inventory();
             invToRequest.addTxHash(pseudoRandomBuffer());
@@ -2583,6 +2585,7 @@ describe('Node tests', async () => {
                 singleBlockRequested: sinon.fake(),
                 isGetBlocksSent: sinon.fake.returns(false)
             };
+            node._peerManager.getConnectedPeers = sinon.fake.returns([fakePeer]);
 
             const invToRequest = new factory.Inventory();
             invToRequest.addTxHash(pseudoRandomBuffer());
@@ -2608,8 +2611,10 @@ describe('Node tests', async () => {
                 pushMessage: sinon.fake(),
                 markAsPossiblyAhead: sinon.fake(),
                 singleBlockRequested: sinon.fake(),
+                doneGetBlocks: sinon.fake(),
                 isGetBlocksSent: sinon.fake.returns(true)
             };
+            node._peerManager.getConnectedPeers = sinon.fake.returns([fakePeer]);
 
             const invToRequest = new factory.Inventory();
             invToRequest.addBlockHash(pseudoRandomBuffer());
@@ -2639,6 +2644,7 @@ describe('Node tests', async () => {
                 singleBlockRequested: sinon.fake(),
                 isGetBlocksSent: sinon.fake.returns(true)
             };
+            node._peerManager.getConnectedPeers = sinon.fake.returns([fakePeer]);
 
             const invToRequest = new factory.Inventory();
             invToRequest.addBlockHash(pseudoRandomBuffer());
@@ -2666,8 +2672,10 @@ describe('Node tests', async () => {
                 markAsEven: sinon.fake(),
                 doneGetBlocks: sinon.fake(),
                 singleBlockRequested: sinon.fake(),
-                isGetBlocksSent: sinon.fake.returns(true)
+                isGetBlocksSent: sinon.fake.returns(true),
+                isAhead: sinon.fake.returns(false)
             };
+            node._peerManager.getConnectedPeers = sinon.fake.returns([fakePeer]);
 
             const invToRequest = new factory.Inventory();
             const invMsg = new factory.Messages.MsgInv();

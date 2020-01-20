@@ -40,7 +40,7 @@ const eraseDbContent = async (db) => {
         db.createKeyStream({keyAsBuffer: true, valueAsBuffer: false})
             .on('data', function(data) {
                 arrBuffers.push({type: 'del', key: data});
-                //                db.del(data, {keyAsBuffer: true, valueAsBuffer: false});
+//                db.del(data, {keyAsBuffer: true, valueAsBuffer: false});
             })
             .on('close', function() {
                 resolve();
@@ -227,12 +227,12 @@ module.exports = (factory, factoryOptions) => {
                 }
                 await this._blockStorage.put(key, block.encode());
 
-            // save blockInfo
-            if (!blockInfo) blockInfo = new BlockInfo(block.header);
-            if (this._api) {
-                await this._api.saveBlock(block, blockInfo);
-            }
-            await this.saveBlockInfo(blockInfo);
+                // save blockInfo
+                if (!blockInfo) blockInfo = new BlockInfo(block.header);
+                if (this._api) {
+                    await this._api.saveBlock(block, blockInfo);
+                }
+                await this.saveBlockInfo(blockInfo);
 
                 if (this._buildTxIndex) {
                     await this._storeTxnsIndex(Buffer.from(block.getHash(), 'hex'), block.getTxHashes());
@@ -337,7 +337,6 @@ module.exports = (factory, factoryOptions) => {
                     await this._api.setBlockState(blockInfo.getHash(), blockInfo.getState());
                 }
             });
-
         }
 
         /**
@@ -453,7 +452,7 @@ module.exports = (factory, factoryOptions) => {
 
                     } else {
                         arrOps.push({type: 'put', key, value: utxo.encode()});
-                        arrUtxos.push(utxo)
+                        arrUtxos.push(utxo);
 
                     }
 
@@ -491,7 +490,7 @@ module.exports = (factory, factoryOptions) => {
                     if (this._buildTxIndex) {
                         await this._storeInternalTxnsIndex(Buffer.from(strTxHash, 'hex'), receipt.getInternalTxns());
                     }
-                    arrReceipt.push({from:strTxHash, receipt:receipt})
+                    arrReceipt.push({from: strTxHash, receipt: receipt});
                 }
                 if (this._api && arrReceipt.length) {
                     await this._api.saveReceipts(arrReceipt);
@@ -733,12 +732,12 @@ module.exports = (factory, factoryOptions) => {
             const keyEnd = this.constructor.createKey(WALLET_PREFIX, buffAddress, strLastIndex);
 
             return new Promise(resolve => {
-                const arrRecords = [];
-                this._walletStorage
-                    .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
-                    .on('data', (data) => arrRecords.push(data))
-                    .on('close', () => resolve(arrRecords));
-            }
+                    const arrRecords = [];
+                    this._walletStorage
+                        .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
+                        .on('data', (data) => arrRecords.push(data))
+                        .on('close', () => resolve(arrRecords));
+                }
             );
         }
 
@@ -892,7 +891,7 @@ module.exports = (factory, factoryOptions) => {
                             const utxo = new UTXO({txHash: hash, data: data.value});
                             for (let strAddr of this._arrStrWalletAddresses) {
                                 const arrIndexes = utxo.getOutputsForAddress(strAddr);
-//                                if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
+                                //                                if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
                                 if (arrIndexes.length) arrRecords.push({strAddr, hash});
                             }
                         })

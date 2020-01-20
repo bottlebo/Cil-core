@@ -208,7 +208,7 @@ module.exports = (factory, factoryOptions) => {
          */
         async _connectToPeer(peer) {
             debugNode(`(address: "${this._debugAddress}") connecting to "${peer.address}"`);
-            await peer.connect();
+            if (!peer.isBanned()) await peer.connect();
             debugNode(`(address: "${this._debugAddress}") CONNECTED to "${peer.address}"`);
         }
 
@@ -374,10 +374,10 @@ module.exports = (factory, factoryOptions) => {
 
             try {
                 await this._processReceivedTx(tx);
-                await this._informNeighbors(tx, peer, 4);
+                await this._informNeighbors(tx, peer);
             } catch (e) {
                 logger.error(e, `Bad TX received. Peer ${peer.address}`);
-                peer.misbehave(5);
+                if (!this._isInitialBlockLoading()) peer.misbehave(5);
                 throw e;
             }
         }
@@ -498,9 +498,11 @@ module.exports = (factory, factoryOptions) => {
                         // so we should resend MSG_GET_BLOCKS later
                         peer.markAsPossiblyAhead();
                     } else {
+                        peer.markAsEven();
+
                         if (nBlockToRequest === 1) {
                             peer.singleBlockRequested();
-                        } else {
+                        } else if (!this._isInitialBlockLoading()) {
 
                             // we requested blocks from equal peer and receive NOTHING new, now we can request his mempool
                             const msgGetMempool = new MsgCommon();
@@ -509,9 +511,8 @@ module.exports = (factory, factoryOptions) => {
                                 `(address: "${this._debugAddress}") sending "${MSG_GET_MEMPOOL}" to "${peer.address}"`);
                             await peer.pushMessage(msgGetMempool);
                         }
-                        peer.doneGetBlocks();
-                        peer.markAsEven();
                     }
+                    peer.doneGetBlocks();
                 }
             } catch (e) {
                 throw e;
@@ -2029,6 +2030,8 @@ module.exports = (factory, factoryOptions) => {
          * @private
          */
         async _blockProcessor() {
+            if (this._isBusyWithExec()) return;
+
             if (this._mapBlocksToExec.size) {
                 debugBlock(`Block processor started. ${this._mapBlocksToExec.size} blocks awaiting to exec`);
 
@@ -2056,12 +2059,7 @@ module.exports = (factory, factoryOptions) => {
                     }
                 }
             } else if (this._requestCache.isEmpty()) {
-                const arrConnectedPeers = this._peerManager.getConnectedPeers();
-
-                // request rest of blocks
-                for (let peer of arrConnectedPeers) {
-                    await this._queryPeerForRestOfBlocks(peer);
-                }
+                await this._queryPeerForRestOfBlocks();
             }
 
             if (this._mapUnknownBlocks.size) {
@@ -2145,7 +2143,7 @@ module.exports = (factory, factoryOptions) => {
                 if (patchState) {
                     await this._acceptBlock(block, patchState);
                     await this._postAcceptBlock(block);
-                    if (!this._networkSuspended) this._informNeighbors(block, peer);
+                    if (!this._networkSuspended && !this._isInitialBlockLoading()) this._informNeighbors(block, peer);
                 }
             } catch (e) {
                 logger.error(`Failed to execute "${block.hash()}"`, e);
@@ -2157,14 +2155,16 @@ module.exports = (factory, factoryOptions) => {
             }
         }
 
-        async _queryPeerForRestOfBlocks(peer) {
+        async _queryPeerForRestOfBlocks() {
+            if (!this._isInitialBlockLoading()) return;
+            const msg = await this._createGetBlocksMsg();
 
-            // if peer is ahead (last time reply with MAX blocks) and we got everything already
-            // here we could request next portion of blocks
-            if (peer.isAhead() && !peer.isGetBlocksSent()) {
-                const msg = await this._createGetBlocksMsg();
-                debugMsg(`(address: "${this._debugAddress}") sending "${msg.message}" to "${peer.address}"`);
-                await peer.pushMessage(msg);
+            const arrConnectedPeers = this._peerManager.getConnectedPeers();
+            for (let peer of arrConnectedPeers) {
+                if (peer.isAhead() && !peer.isGetBlocksSent()) {
+                    debugMsg(`(address: "${this._debugAddress}") sending "${msg.message}" to "${peer.address}"`);
+                    await peer.pushMessage(msg);
+                }
             }
         }
 
@@ -2505,6 +2505,15 @@ module.exports = (factory, factoryOptions) => {
             if (patch && patch.getReceipt(strTxHash)) return patch.getReceipt(strTxHash);
 
             return await this._storage.getTxReceipt(strTxHash);
+        }
+
+        _isBusyWithExec() {
+            return this._mutex.isLocked('blockExec');
+        }
+
+        _isInitialBlockLoading() {
+            const arrConnectedPeers = this._peerManager.getConnectedPeers();
+            return arrConnectedPeers.find(peer => peer.isAhead());
         }
     };
 };

@@ -125,7 +125,7 @@ module.exports = {
 
         MEMPOOL_TX_QTY: 500,
         MEMPOOL_TX_LIFETIME: 24 * 60 * 60 * 1000,
-        MEMPOOL_OUTDATED_INTERVAL: 24 * 60 * 60 * 1000,
+        MEMPOOL_BAD_TX_CACHE: 10 * 60 * 1000,
 
         // TODO: review it. Heavy code will be terminated on slow nodes. And node become unsynced
         TIMEOUT_CODE: 10000,
@@ -152,6 +152,9 @@ module.exports = {
             HEIGHT_FORK_SERIALIZER_FIX2: 6100
         },
 
-        blockCreationTimeLimit: 1500
+        BLOCK_CREATION_TIME_LIMIT: 1500,
+
+        // if block older than it's parent (any) more than X second - prevent auto witnessing
+        BLOCK_AUTO_WITNESSING_TIMESTAMP_DIFF: 30 * 60
     }
 };
