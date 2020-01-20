@@ -13,6 +13,8 @@ const debugBlock = debugLib('node:block');
 const debugMsg = debugLib('node:messages');
 const debugMsgFull = debugLib('node:messages:full');
 
+const PEER_RECONNECT_TIMER_NAME = 'peerReconnectTimer';
+
 function createPeerKey(peer) {
     return peer.address + peer.port;
 }
@@ -55,7 +57,7 @@ module.exports = (factory, factoryOptions) => {
         MsgGetData,
         MsgGetBlocks
     } = Messages;
-    const {MSG_VERSION, MSG_VERACK, MSG_GET_ADDR, MSG_ADDR, MSG_REJECT} = Constants.messageTypes;
+    const {MSG_VERSION, MSG_VERACK, MSG_GET_ADDR, MSG_ADDR, MSG_REJECT, MSG_GET_MEMPOOL} = Constants.messageTypes;
 
     return class Node {
         constructor(options) {
@@ -155,7 +157,7 @@ module.exports = (factory, factoryOptions) => {
         }
 
         ensureLoaded() {
-            return Promise.all([this._listenPromise, this._rebuildPromise]).catch(err => console.error(err));
+            return Promise.all([this._listenPromise, this._rebuildPromise]).catch(err => logger.error(err));
         }
 
         async bootstrap() {
@@ -180,7 +182,7 @@ module.exports = (factory, factoryOptions) => {
             await this._connectToPeers(arrSeedPeers);
 
             this._reconnectTimer.setInterval(
-                Constants.PEER_RECONNECT_TIMER,
+                PEER_RECONNECT_TIMER_NAME,
                 this._reconnectPeers,
                 Constants.PEER_RECONNECT_INTERVAL
             );
@@ -193,7 +195,7 @@ module.exports = (factory, factoryOptions) => {
                     await peer.pushMessage(this._createMsgVersion());
                     await peer.loaded();
                 } catch (e) {
-                    logger.error(e.message);
+                    debugNode(e.message);
                 }
             }
         }
@@ -206,7 +208,7 @@ module.exports = (factory, factoryOptions) => {
          */
         async _connectToPeer(peer) {
             debugNode(`(address: "${this._debugAddress}") connecting to "${peer.address}"`);
-            await peer.connect();
+            if (!peer.isBanned()) await peer.connect();
             debugNode(`(address: "${this._debugAddress}") CONNECTED to "${peer.address}"`);
         }
 
@@ -252,7 +254,7 @@ module.exports = (factory, factoryOptions) => {
                 // TODO: disconnect this peer if we already have Constant.MAX_PEERS (CIL-124)
                 this._peerManager.addCandidateConnection(connection);
             } catch (err) {
-                logger.error(err);
+                debugNode(err);
                 connection.close();
             }
         }
@@ -270,7 +272,7 @@ module.exports = (factory, factoryOptions) => {
                 let peers = bestPeers.splice(0, this._nMinConnections - this._peerManager.getConnectedPeers().length);
                 await this._connectToPeers(peers);
             } catch (e) {
-                console.error(e.message);
+                debugNode(e.message);
             } finally {
                 this._bReconnectInProgress = false;
             }
@@ -324,6 +326,9 @@ module.exports = (factory, factoryOptions) => {
                 if (message.isGetBlocks()) {
                     return await this._handleGetBlocksMessage(peer, message);
                 }
+                if (message.isGetMempool()) {
+                    return await this._handleGetMempool(peer);
+                }
                 if (message.isInv()) {
                     return await this._handleInvMessage(peer, message);
                 }
@@ -339,7 +344,7 @@ module.exports = (factory, factoryOptions) => {
 
                 throw new Error(`Unhandled message type "${message.message}"`);
             } catch (err) {
-                logger.error(err, `Incoming message. Peer ${peer.address}`);
+                logger.error(`Incoming message. Peer ${peer.address}`, err);
 
                 // TODO: implement state (like bitcoin) to keep misbehave score or penalize on each handler?
                 peer.misbehave(1);
@@ -369,10 +374,10 @@ module.exports = (factory, factoryOptions) => {
 
             try {
                 await this._processReceivedTx(tx);
-                await this._informNeighbors(tx, peer, 4);
+                await this._informNeighbors(tx, peer);
             } catch (e) {
                 logger.error(e, `Bad TX received. Peer ${peer.address}`);
-                peer.misbehave(5);
+                if (!this._isInitialBlockLoading()) peer.misbehave(5);
                 throw e;
             }
         }
@@ -399,7 +404,7 @@ module.exports = (factory, factoryOptions) => {
 
             // since we building DAG, it's faster than check storage
             if (await this._isBlockKnown(block.hash())) {
-                logger.error(`Block ${block.hash()} already known!`);
+                debugNode(`Block ${block.hash()} already known!`);
                 return;
             }
             try {
@@ -477,6 +482,7 @@ module.exports = (factory, factoryOptions) => {
                     }
                 }
 
+                // inventory could contain TXns
                 if (invToRequest.vector.length) {
                     const msgGetData = new MsgGetData();
                     msgGetData.inventory = invToRequest;
@@ -485,16 +491,28 @@ module.exports = (factory, factoryOptions) => {
                     await peer.pushMessage(msgGetData);
                 }
 
-                // if peer expose us more than MAX_BLOCKS_INV - it seems it is ahead
-                // so we should resend MSG_GET_BLOCKS later
-                if (nBlockToRequest > 1) {
-                    peer.markAsPossiblyAhead();
+                // was it reponse to MSG_GET_BLOCKS ?
+                if (peer.isGetBlocksSent()) {
+                    if (nBlockToRequest > 1) {
 
-                    // we think it was a response to MSG_GET_BLOCKS, so let's mark it as done
+                        // so we should resend MSG_GET_BLOCKS later
+                        peer.markAsPossiblyAhead();
+                    } else {
+                        peer.markAsEven();
+
+                        if (nBlockToRequest === 1) {
+                            peer.singleBlockRequested();
+                        } else if (!this._isInitialBlockLoading()) {
+
+                            // we requested blocks from equal peer and receive NOTHING new, now we can request his mempool
+                            const msgGetMempool = new MsgCommon();
+                            msgGetMempool.getMempoolMessage = true;
+                            debugMsg(
+                                `(address: "${this._debugAddress}") sending "${MSG_GET_MEMPOOL}" to "${peer.address}"`);
+                            await peer.pushMessage(msgGetMempool);
+                        }
+                    }
                     peer.doneGetBlocks();
-                } else {
-                    peer.markAsEven();
-                    peer.singleBlockRequested();
                 }
             } catch (e) {
                 throw e;
@@ -526,12 +544,21 @@ module.exports = (factory, factoryOptions) => {
             debugMsg(
                 `(address: "${this._debugAddress}") sending ${inventory.vector.length} blocks to "${peer.address}"`);
 
-            // TODO: find a better place to inform peer about our local TXNS
-            // append local TXns to this inv
-            const arrLocalTxHashes = this._mempool.getLocalTxnHashes();
+            const msgInv = new MsgInv();
+            msgInv.inventory = inventory;
+            if (inventory.vector.length) {
+                debugMsg(`(address: "${this._debugAddress}") sending "${msgInv.message}" to "${peer.address}"`);
+                await peer.pushMessage(msgInv);
+            }
+        }
+
+        async _handleGetMempool(peer) {
+            const inventory = new Inventory();
+
+            const arrLocalTxHashes = this._mempool.getContent();
             arrLocalTxHashes.forEach(hash => inventory.addTxHash(hash));
             debugMsg(
-                `(address: "${this._debugAddress}") sending ${arrLocalTxHashes.length} local TXns to "${peer.address}"`);
+                `(address: "${this._debugAddress}") sending ${arrLocalTxHashes.length} mempool TXns to "${peer.address}"`);
 
             const msgInv = new MsgInv();
             msgInv.inventory = inventory;
@@ -638,7 +665,6 @@ module.exports = (factory, factoryOptions) => {
                             'hex')}" to "${peer.address}"`);
                     await peer.pushMessage(msg);
                 } catch (e) {
-                    //                    logger.error(e.message);
                     logger.error(`GetDataMessage. Peer ${peer.address}`, e);
 //                    peer.misbehave(1);
 
@@ -749,7 +775,7 @@ module.exports = (factory, factoryOptions) => {
                 await peer.pushMessage(msgVerack);
 
             } else {
-                const reason = `Has incompatible protocol version ${message.protocolVersion}`;
+                const reason = `Has incompatible protocol version ${message.protocolVersion.toString(16)}`;
                 debugNode(reason);
                 peer.disconnect(reason);
             }
@@ -885,7 +911,7 @@ module.exports = (factory, factoryOptions) => {
                     case 'getContractData':
                         return await this._getContractData(content);
                     case 'txReceipt':
-                        return await this._storage.getTxReceipt(content);
+                        return await this._getTxReceipt(content);
                     case 'getBlock':
 
                         // content is hash
@@ -952,7 +978,6 @@ module.exports = (factory, factoryOptions) => {
             newTx.verify();
 
             const strNewTxHash = newTx.getHash();
-            assert(!this._mempool.isBadTx(strNewTxHash), 'Tx already marked as bad');
             assert(!this._mempool.hasTx(strNewTxHash), 'Tx already in mempool');
 
             await this._processReceivedTx(newTx, false);
@@ -971,7 +996,7 @@ module.exports = (factory, factoryOptions) => {
                 // inform 2 pseudorandom neighbours about new Tx
                 await this._informNeighbors(newTx);
             } catch (e) {
-                console.error(e);
+                logger.error(e);
                 throw new Error(`Tx is not accepted: ${e.message}`);
             }
         }
@@ -1392,8 +1417,10 @@ module.exports = (factory, factoryOptions) => {
             const cNestedContract = await this._getContractByAddr(strAddress, patchBlock);
             if (!cNestedContract) throw new Error('Contract not found!');
 
-            if (this._processedBlock &&
-                this._processedBlock.getHeight() >= Constants.forks.HEIGHT_FORK_SERIALIZER_FIX2) {
+            // if we processing PRC TX || block with height > HEIGHT_FORK_SERIALIZER_FIX2
+            if (!this._processedBlock && Constants.forks.HEIGHT_FORK_SERIALIZER_FIX2 ||
+                this._processedBlock && this._processedBlock.getHeight() >= Constants.forks.HEIGHT_FORK_SERIALIZER_FIX2
+            ) {
                 cNestedContract.switchSerializerToJson();
             }
 
@@ -1473,7 +1500,7 @@ module.exports = (factory, factoryOptions) => {
 
             // double check: whether we already processed this block?
             if (this._isBlockExecuted(block.getHash())) {
-                logger.error(`Trying to process ${block.getHash()} more than one time!`);
+                debugNode(`Trying to process ${block.getHash()} more than one time!`);
                 return null;
             }
 
@@ -1900,8 +1927,8 @@ module.exports = (factory, factoryOptions) => {
 
             // TODO: implement flushing all in memory data to disk
             this._peerManager.saveAllPeers().then(_ => {
-                console.log('Shutting down');
-                process.exit(1);
+                logger.log('Shutting down');
+                process.exit(0);
             });
         }
 
@@ -1990,7 +2017,7 @@ module.exports = (factory, factoryOptions) => {
         }
 
         async _nodeWorker() {
-            await this._blockProcessor().catch(err => console.error(err));
+            await this._blockProcessor().catch(err => logger.error(err));
             await sleep(1000);
             return setImmediate(this._nodeWorker.bind(this));
         }
@@ -2003,6 +2030,8 @@ module.exports = (factory, factoryOptions) => {
          * @private
          */
         async _blockProcessor() {
+            if (this._isBusyWithExec()) return;
+
             if (this._mapBlocksToExec.size) {
                 debugBlock(`Block processor started. ${this._mapBlocksToExec.size} blocks awaiting to exec`);
 
@@ -2030,12 +2059,7 @@ module.exports = (factory, factoryOptions) => {
                     }
                 }
             } else if (this._requestCache.isEmpty()) {
-                const arrConnectedPeers = this._peerManager.getConnectedPeers();
-
-                // request rest of blocks
-                for (let peer of arrConnectedPeers) {
-                    await this._queryPeerForRestOfBlocks(peer);
-                }
+                await this._queryPeerForRestOfBlocks();
             }
 
             if (this._mapUnknownBlocks.size) {
@@ -2119,7 +2143,7 @@ module.exports = (factory, factoryOptions) => {
                 if (patchState) {
                     await this._acceptBlock(block, patchState);
                     await this._postAcceptBlock(block);
-                    if (!this._networkSuspended) this._informNeighbors(block, peer);
+                    if (!this._networkSuspended && !this._isInitialBlockLoading()) this._informNeighbors(block, peer);
                 }
             } catch (e) {
                 logger.error(`Failed to execute "${block.hash()}"`, e);
@@ -2131,14 +2155,16 @@ module.exports = (factory, factoryOptions) => {
             }
         }
 
-        async _queryPeerForRestOfBlocks(peer) {
+        async _queryPeerForRestOfBlocks() {
+            if (!this._isInitialBlockLoading()) return;
+            const msg = await this._createGetBlocksMsg();
 
-            // if peer is ahead (last time reply with MAX blocks) and we got everything already
-            // here we could request next portion of blocks
-            if (peer.isAhead() && !peer.isGetBlocksSent()) {
-                const msg = await this._createGetBlocksMsg();
-                debugMsg(`(address: "${this._debugAddress}") sending "${msg.message}" to "${peer.address}"`);
-                await peer.pushMessage(msg);
+            const arrConnectedPeers = this._peerManager.getConnectedPeers();
+            for (let peer of arrConnectedPeers) {
+                if (peer.isAhead() && !peer.isGetBlocksSent()) {
+                    debugMsg(`(address: "${this._debugAddress}") sending "${msg.message}" to "${peer.address}"`);
+                    await peer.pushMessage(msg);
+                }
             }
         }
 
@@ -2265,9 +2291,6 @@ module.exports = (factory, factoryOptions) => {
                 [method, arrArguments, contractAddress]
             );
 
-            // allow use pending blocks data
-            completed = completed !== undefined;
-
             let contract = await this._storage.getContract(contractAddress);
 
             if (!completed) {
@@ -2283,10 +2306,10 @@ module.exports = (factory, factoryOptions) => {
             };
 
             const nCoinsDummy = Number.MAX_SAFE_INTEGER;
+            this._app.setCallbacks(this._createCallbacksForApp(new PatchDB(), new PatchDB(), '1'.repeat(64)));
             this._app.setupVariables({
                 objFees: {nFeeContractInvocation: nCoinsDummy},
-                nCoinsDummy,
-                objCallbacks: this._createCallbacksForApp(new PatchDB(), new PatchDB(), '1'.repeat(64))
+                nCoinsDummy
             });
 
             return await this._app.runContract(
@@ -2354,7 +2377,7 @@ module.exports = (factory, factoryOptions) => {
             }
 
             this._queryPeerForRestOfBlocks = this._requestUnknownBlocks = () => {
-                console.error('we have unresolved dependencies! will possibly fail to rebuild DB');
+                logger.error('we have unresolved dependencies! will possibly fail to rebuild DB');
             };
 
             const originalQueueBlockExec = this._queueBlockExec.bind(this);
@@ -2363,7 +2386,7 @@ module.exports = (factory, factoryOptions) => {
                 if (bStop) return;
                 if (hash === strHashToStop) bStop = true;
                 const blockInfo = this._mainDag.getBlockInfo(hash);
-                this._storage.saveBlockInfo(blockInfo).catch(err => console.error(err));
+                this._storage.saveBlockInfo(blockInfo).catch(err => logger.error(err));
                 originalQueueBlockExec(hash, peer);
             };
 
@@ -2435,8 +2458,13 @@ module.exports = (factory, factoryOptions) => {
                 if (!patchTx) {
                     const localTx = this._mempool.getTx(strTxHash);
 
-                    // exec it. no need to validate. local txns were already validated
-                    const {patchThisTx} = await this._processTx(undefined, false, localTx);
+                    let patchThisTx;
+                    try {
+                        const objResult = await this._processTx(undefined, false, localTx);
+                        patchThisTx = objResult.patchThisTx;
+                    } catch (e) {
+                        this._mempool.removeTxns(strTxHash);
+                    }
 
                     // store it back with patch
                     this._mempool.addLocalTx(localTx, patchThisTx);
@@ -2458,6 +2486,34 @@ module.exports = (factory, factoryOptions) => {
          */
         sortBlocks(strHashBlockA, strHashBlockB) {
             return this._mainDag.getBlockHeight(strHashBlockA) - this._mainDag.getBlockHeight(strHashBlockB);
+        }
+
+        /**
+         * Will search receipt in patch of local txns or pending blocks
+         *
+         * @param {String} strTxHash
+         * @return {TxReceipt}
+         * @private
+         */
+        async _getTxReceipt(strTxHash) {
+            await this._ensureLocalTxnsPatch();
+            let receipt = this._patchLocalTxns ? this._patchLocalTxns.getReceipt(strTxHash) : undefined;
+            if (receipt) return receipt;
+
+            await this._ensureBestBlockValid();
+            const patch = this._objCurrentBestParents ? this._objCurrentBestParents.patchMerged : undefined;
+            if (patch && patch.getReceipt(strTxHash)) return patch.getReceipt(strTxHash);
+
+            return await this._storage.getTxReceipt(strTxHash);
+        }
+
+        _isBusyWithExec() {
+            return this._mutex.isLocked('blockExec');
+        }
+
+        _isInitialBlockLoading() {
+            const arrConnectedPeers = this._peerManager.getConnectedPeers();
+            return arrConnectedPeers.find(peer => peer.isAhead());
         }
     };
 };
