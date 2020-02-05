@@ -110,7 +110,6 @@ module.exports = (factory, factoryOptions) => {
          * @return {Promise<void>|*}
          */
         ready() {
-            //if (this._sqlStorage) return this._sqlStorage.connPromise;
             return Promise.resolve();
         }
 
@@ -435,13 +434,15 @@ module.exports = (factory, factoryOptions) => {
         /**
          *
          * @param {PatchDB} statePatch
+         * @param {Number} nHeightMax - max height among stable blocks
          * @returns {Promise<void>}
          */
-        async applyPatch(statePatch) {
+        async applyPatch(statePatch, nHeightMax) {
             const arrUtxos = [];
             const arrDelUtxo = [];
             const arrContract = [];
             const arrReceipt = [];
+
             const arrOps = [];
             const lock = await this._mutex.acquire(['utxo', 'contract', 'receipt', 'conciliums']);
             try {
@@ -469,6 +470,7 @@ module.exports = (factory, factoryOptions) => {
                 }
                 // save contracts
                 for (let [strContractAddr, contract] of statePatch.getContracts()) {
+                    if (nHeightMax < Constants.forks.HEIGHT_FORK_SERIALIZER_FIX3) contract.dirtyWorkaround();
 
                     // if we change concilium contract - invalidate cache
                     if (Constants.CONCILIUM_DEFINITION_CONTRACT_ADDRESS === strContractAddr) {
@@ -823,9 +825,14 @@ module.exports = (factory, factoryOptions) => {
             const arrAddrRecords = await this._walletReadAddressRecords(strAddress);
             const arrKeysToCleanup = [];
             const arrResult = [];
+            const setHashes = new Set();
 
             for (let {key, value: hash} of arrAddrRecords) {
                 try {
+                    const strHash = hash.toString('hex');
+                    if (setHashes.has(strHash)) throw ('duplicate. marked for cleanup');
+                    setHashes.add(strHash);
+
                     const utxo = await this.getUtxo(hash);
                     arrResult.push(utxo);
                 } catch (e) {
@@ -892,7 +899,7 @@ module.exports = (factory, factoryOptions) => {
                             const utxo = new UTXO({txHash: hash, data: data.value});
                             for (let strAddr of this._arrStrWalletAddresses) {
                                 const arrIndexes = utxo.getOutputsForAddress(strAddr);
-                                //                                if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
+//                                if (arrIndexes.length) await this._walletWriteAddressUtxo(strAddr, hash);
                                 if (arrIndexes.length) arrRecords.push({strAddr, hash});
                             }
                         })
@@ -1090,7 +1097,7 @@ module.exports = (factory, factoryOptions) => {
          * @param {Object} objEncryptedPk - @see Crypto.encrypt
          * @return {Promise<void>}
          */
-        async writeKeyStore(strAddress, strAccountName, objEncryptedPk) {
+        async writeKeystore(strAddress, strAccountName, objEncryptedPk) {
             const strKeyStoreContent = JSON.stringify({
                 address: 'Ux' + strAddress,
                 ...prepareForStringifyObject(objEncryptedPk),
@@ -1103,5 +1110,21 @@ module.exports = (factory, factoryOptions) => {
             await this._readAccount(strAccountName);
         }
 
+        /**
+         *
+         * @param {String} strAccountName
+         * @return {Promise<Map<any, any>>}
+         */
+        async getKeystoresForAccount(strAccountName) {
+            const mapResult = new Map();
+
+            const strPath = `${this._strAccountPath}/${strAccountName}`;
+
+            for (let strAddress of await this.getAccountAddresses(strAccountName)) {
+                mapResult.set(strAddress, JSON.parse(await fs.readFile(`${strPath}/${strAddress}`, 'utf8')));
+            }
+
+            return mapResult;
+        }
     };
 };
