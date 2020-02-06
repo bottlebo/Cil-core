@@ -478,7 +478,7 @@ module.exports = (factory, factoryOptions) => {
                     }
                     const key = this.constructor.createKey(CONTRACT_PREFIX, Buffer.from(strContractAddr, 'hex'));
                     arrOps.push({type: 'put', key, value: contract.encode()});
-                    arrContract.push({strContractAddr, contract});
+//                    arrContract.push({strContractAddr, contract});
                 }
                 if (this._api && arrContract.length) {
                     await this._api.saveContracts(arrContract);
