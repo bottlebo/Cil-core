@@ -1,9 +1,7 @@
 const assert = require('assert');
-const typeforce = require('typeforce');
 const debugLib = require('debug');
 
-const {sleep, createPeerTag} = require('../utils');
-const types = require('../types');
+const {createPeerTag} = require('../utils');
 
 const debugWitness = debugLib('witness:app');
 const debugWitnessMsg = debugLib('witness:messages');
@@ -111,7 +109,7 @@ module.exports = (factory, factoryOptions) => {
                 try {
                     await this._connectWitness(peer, concilium);
                 } catch (e) {
-                    console.error(e.message);
+                    logger.error(e.message);
                 }
             }
         }
@@ -297,11 +295,14 @@ module.exports = (factory, factoryOptions) => {
                     logger.error(`Block ${block.hash()} already known!`);
                     return;
                 }
+
+                const lock = await this._mutex.acquire(['blockExec']);
                 try {
 
                     // check block without checking signatures
                     await this._verifyBlock(block, false);
                     if (await this._canExecuteBlock(block)) {
+                        this._processedBlock = block;
                         const patch = await this._execBlock(block);
                         consensus.processValidBlock(block, patch);
                     } else {
@@ -312,6 +313,8 @@ module.exports = (factory, factoryOptions) => {
                 } catch (e) {
                     logger.error(e);
                     consensus.invalidBlock();
+                } finally {
+                    this._mutex.release(lock);
                 }
             } else {
 
@@ -364,15 +367,15 @@ module.exports = (factory, factoryOptions) => {
             });
 
             consensus.on('createBlock', async () => {
-                if (this._mutex.isLocked('commitBlock')) return;
+                if (this._mutex.isLocked('commitBlock') || this._isInitialBlockLoading()) return;
 
                 const lock = await this._mutex.acquire(['createBlock']);
 
                 try {
                     const {conciliumId} = consensus;
                     const {block, patch} = await this._createBlock(conciliumId);
-                    if (block.isEmpty() &&
-                        (!consensus.timeForWitnessBlock() || !this._pendingBlocks.isReasonToWitness(block))
+                    if (block.isEmpty() && (!consensus.timeForWitnessBlock() ||
+                                            !this._pendingBlocks.isReasonToWitness(block) || this._isBigTimeDiff(block))
                     ) {
                         this._suppressedBlockHandler();
                     } else {
@@ -387,14 +390,17 @@ module.exports = (factory, factoryOptions) => {
             });
 
             consensus.on('commitBlock', async (block, patch) => {
-                const lock = await this._mutex.acquire(['createBlock']);
+                const lock = await this._mutex.acquire(['commitBlock']);
+                let lockBlock;
+
                 try {
                     const arrContracts = [...patch.getContracts()];
                     if (arrContracts.length) {
 
                         // we have contracts inside block - we should re-execute block to have proper variables inside block
                         await this._handleArrivedBlock(block);
-                    } else if (!this._isBlockExecuted(block.getHash())) {
+                    } else if (!this._mutex.isLocked('blockReceived') && !this._isBlockExecuted(block.getHash())) {
+                        lockBlock = await this._mutex.acquire(['blockReceived']);
 
                         // block still hadn't received from more quick (that already commited & announced block) witness
                         // we have only moneys transfers, so we could use patch. this will speed up processing
@@ -412,6 +418,7 @@ module.exports = (factory, factoryOptions) => {
                     logger.error(e);
                 } finally {
                     this._mutex.release(lock);
+                    if (lockBlock) this._mutex.release(lockBlock);
                 }
             });
         }
@@ -475,7 +482,7 @@ module.exports = (factory, factoryOptions) => {
             const consensusInstance = this._consensuses.get(conciliumId);
 
             // set my own view
-            consensusInstance.processMessage(msg);
+            if (consensusInstance) consensusInstance.processMessage(msg);
         }
 
         /**
@@ -492,9 +499,8 @@ module.exports = (factory, factoryOptions) => {
             let arrParents;
             let patchMerged;
 
-            const lock = await this._mutex.acquire(['blockExec', 'blockCreate']);
             try {
-                ({arrParents, patchMerged} = this._pendingBlocks.getBestParents(conciliumId));
+                ({arrParents, patchMerged} = await this._pendingBlocks.getBestParents(conciliumId));
                 patchMerged = patchMerged ? patchMerged : new PatchDB();
                 patchMerged.setConciliumId(conciliumId);
 
@@ -516,7 +522,7 @@ module.exports = (factory, factoryOptions) => {
                         block.addTx(tx);
 
                         // this tx exceeded time limit for block creations - so we don't include it
-                        if (Date.now() - nStartTime > Constants.blockCreationTimeLimit) break;
+                        if (Date.now() - nStartTime > Constants.BLOCK_CREATION_TIME_LIMIT) break;
                     } catch (e) {
                         logger.error(e);
                         arrBadHashes.push(tx.hash());
@@ -533,7 +539,6 @@ module.exports = (factory, factoryOptions) => {
             } catch (e) {
                 logger.error(`Failed to create block!`, e);
             } finally {
-                this._mutex.release(lock);
                 this._processedBlock = undefined;
             }
 
@@ -544,5 +549,24 @@ module.exports = (factory, factoryOptions) => {
             this._conciliumSeed = super._createPseudoRandomSeed(arrLastStableBlockHashes);
             this._consensuses.forEach(c => c.setRoundSeed(this._conciliumSeed));
         };
+
+        /**
+         *
+         * @param {Block} block
+         * @return {boolean} - true, if at least one of a child is quite old.
+         * @private
+         */
+        _isBigTimeDiff(block) {
+            try {
+                const arrTimeStamps = block.parentHashes.map(
+                    strParentHash => this._pendingBlocks.getBlock(strParentHash).blockHeader.timestamp);
+
+                return !arrTimeStamps.every(timestamp =>
+                    block.timestamp - timestamp < Constants.BLOCK_AUTO_WITNESSING_TIMESTAMP_DIFF);
+            } catch (e) {
+                logger.error(e);
+                return true;
+            }
+        }
     };
 };

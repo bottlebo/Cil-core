@@ -42,7 +42,7 @@ module.exports = {
 
         WITNESS_HOLDOFF: 1 * 60 * 1000,
 
-        INV_REQUEST_HOLDOFF: 5 * 60 * 1000,
+        INV_REQUEST_HOLDOFF: 0.5 * 60 * 1000,
 
         concilium: {
             HEIGHT_TO_RELEASE_ADD_ON: 50,
@@ -52,7 +52,8 @@ module.exports = {
         forks: {
             HEIGHT_FORK_SERIALIZER: 8970,
             HEIGHT_FORK_CHANGE: 8992,
-            HEIGHT_FORK_SERIALIZER_FIX2: 9145
+            HEIGHT_FORK_SERIALIZER_FIX2: 9145,
+            HEIGHT_FORK_SERIALIZER_FIX3: 55700
         }
     }
 };

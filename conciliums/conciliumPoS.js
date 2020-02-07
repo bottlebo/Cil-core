@@ -18,9 +18,6 @@ const debug = debugLib('conciliumPoS:');
 //        // see base class
 //    },
 //
-//    // this means - can anybody join concilium or creator should add them
-//    isOpen: true,
-//
 //    // amount to use as share
 //    nMinAmountToJoin: 1e8,
 //
@@ -50,10 +47,16 @@ module.exports = ({Constants}) =>
 
             if (!Array.isArray(this._data.arrMembers)) this._data.arrMembers = [];
 
-            const nGcd = GCD(this._data.arrMembers.map(m => m.amount));
+            this._totalSharesAmount = this._data.arrMembers.reduce((accum, m) => accum + m.amount, 0);
+
+            let nGcd = GCD(this._data.arrMembers.map(m => m.amount));
+            if (this._totalSharesAmount >= 1e9 && nGcd < 1e6) {
+                nGcd = 1e6;
+            } else if (this._totalSharesAmount >= 1e6 && nGcd < 1e3) nGcd = 1000;
+
+            this._totalSharesAmount /= nGcd;
             this._arrShares = this._data.arrMembers.map(m => m.amount / nGcd);
 
-            this._totalSharesAmount = this._arrShares.reduce((accum, share) => accum + share, 0);
 
             // we need 50% +1
             // as _totalSharesAmount = Sum(amounts) / nGcd
@@ -61,8 +64,8 @@ module.exports = ({Constants}) =>
                 1 : (0.5 * this._totalSharesAmount + 1) / this._totalSharesAmount;
 
             // see _getSlot
-            this._paramA = 7;
-            this._paramB = 17;
+            this._paramA = 1289;
+            this._paramB = 3559;
         }
 
         static create(conciliumId, nMinAmountToJoin, currentHeight, arrMembers, nSeqLength) {
@@ -108,12 +111,11 @@ module.exports = ({Constants}) =>
          *
          * @returns {String}
          */
-        getProposerAddress(roundNo) {
+        getProposerAddress() {
+            assert(this._nLocalRound < this._nSeqLength, 'this._nLocalRound exceeded this._nSeqLength');
+            const nAddrIdx = this._arrProposers[this._nLocalRound];
 
-            // TODO: REPLACE THIS STUB!!
-            const arrAddresses = this.getAddresses();
-            const idx = roundNo % arrAddresses.length;
-            return arrAddresses[idx].toString('hex');
+            return this._data.arrMembers[nAddrIdx].address;
         }
 
         /**
@@ -163,7 +165,7 @@ module.exports = ({Constants}) =>
 
             for (let i = 0; i < this._nSeqLength; i++) {
                 const proposerIdx = this._findIdxByRound(this._getSlot(seed + i));
-                this._arrProposers.push(this._data.arrMembers[proposerIdx].address);
+                this._arrProposers.push(proposerIdx);
             }
         }
 

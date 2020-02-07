@@ -15,7 +15,7 @@ module.exports = {
         strIdent: 'Prod',
 
         network: 0x12882304,
-        protocolVersion: 0x0129,
+        protocolVersion: 0x0130,
         port: 8223,
 
         rpcPort: 8222,
@@ -49,14 +49,11 @@ module.exports = {
         // time to restrict reconnection with peer
         PEER_RESTRICT_TIME: 2 * 60 * 1000,
 
-        PEER_HEARTBEAT_TIMER_NAME: 'peerHeartbeatTimer',
         PEER_HEARTBEAT_TIMEOUT: 2 * 60 * 1000,
         PEER_DEAD_TIME: 6 * 60 * 1000,
 
-        PEER_RECONNECT_TIMER: 'peerReconnectTimer',
         PEER_RECONNECT_INTERVAL: 2 * 60 * 1000,
 
-        PEERMANAGER_BACKUP_TIMER_NAME: 'peerManagerBackupTimer',
         PEERMANAGER_BACKUP_TIMEOUT: 10 * 60 * 1000,
 
         // maximum block hashes in MSG_INV
@@ -76,6 +73,7 @@ module.exports = {
             MSG_INV: 'inv',
             MSG_GET_DATA: 'getdata',
             MSG_GET_BLOCKS: 'getblocks',
+            MSG_GET_MEMPOOL: 'getmempool',
             MSG_PING: 'ping',
             MSG_PONG: 'pong',
 
@@ -127,7 +125,7 @@ module.exports = {
 
         MEMPOOL_TX_QTY: 500,
         MEMPOOL_TX_LIFETIME: 24 * 60 * 60 * 1000,
-        MEMPOOL_OUTDATED_INTERVAL: 24 * 60 * 60 * 1000,
+        MEMPOOL_BAD_TX_CACHE: 10 * 60 * 1000,
 
         // TODO: review it. Heavy code will be terminated on slow nodes. And node become unsynced
         TIMEOUT_CODE: 10000,
@@ -151,9 +149,16 @@ module.exports = {
         forks: {
             HEIGHT_FORK_SERIALIZER: 3775,
             HEIGHT_FORK_CHANGE: 3775,
-            HEIGHT_FORK_SERIALIZER_FIX2: 6100
+            HEIGHT_FORK_SERIALIZER_FIX2: 6100,
+            HEIGHT_FORK_SERIALIZER_FIX3: 45000
         },
 
-        blockCreationTimeLimit: 1500
+        BLOCK_CREATION_TIME_LIMIT: 1500,
+
+        // if block older than it's parent (any) more than X second - prevent auto witnessing
+        BLOCK_AUTO_WITNESSING_TIMESTAMP_DIFF: 30 * 60,
+
+        CONTRACT_V_JSON: 2,
+        CONTRACT_V_V8: 0
     }
 };

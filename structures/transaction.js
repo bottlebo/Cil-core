@@ -60,6 +60,10 @@ module.exports = ({Constants, Crypto, Coins}, {transactionProto, transactionPayl
             return this._data;
         }
 
+        /**
+         *
+         * @return {Array} [{txHash, nTxOutput}]
+         */
         get inputs() {
             const checkPath = this._data &&
                               this._data.payload &&
@@ -85,7 +89,7 @@ module.exports = ({Constants, Crypto, Coins}, {transactionProto, transactionPayl
 
         /**
          *
-         * @return {Array} utxos (Buffer!) this tx tries to spend
+         * @return {Array} of Buffers this tx tries to spend
          */
         get utxos() {
             const inputs = this.inputs;
@@ -252,6 +256,11 @@ module.exports = ({Constants, Crypto, Coins}, {transactionProto, transactionPayl
             this._data.txSignature = Crypto.sign(hash, key, enc);
         }
 
+        signAllInputs(key, enc = 'hex') {
+            if (this._data.claimProofs.length) throw('You should choose: "signAllInputs" or claim per input');
+            this.signForContract(key, enc);
+        }
+
         getTxSignature() {
             return Buffer.isBuffer(this._data.txSignature) ||
                    (Array.isArray(this._data.txSignature) && this._data.txSignature.length) ?
@@ -308,7 +317,7 @@ module.exports = ({Constants, Crypto, Coins}, {transactionProto, transactionPayl
             // we don't check signatures because claimProofs could be arbitrary value for codeScript, not only signatures
             assert(outsValid, 'Errors in outputs');
 
-            assert(this.claimProofs.length === inputs.length, 'Errors in clamProofs');
+            assert(this.claimProofs.length === inputs.length || this.getTxSignature(), 'Errors in clamProofs');
         }
 
         /**

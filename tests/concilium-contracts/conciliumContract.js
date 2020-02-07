@@ -79,6 +79,8 @@ module.exports = class ContractConciliums extends Base {
 
         if (!objConcilium.isOpen) throw ('You cant join this concilium. Ask about invitation');
 
+        global.bIndirectCall = true;
+
 //        if (objConcilium.type === ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS}) {
         if (objConcilium.type === factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS) {
             this._addPosConciliumMember(objConcilium, callerAddress);
@@ -102,6 +104,8 @@ module.exports = class ContractConciliums extends Base {
 
         const objConcilium = this._checkConciliumId(conciliumId);
 
+        global.bIndirectCall = true;
+
 //        if (objConcilium.type === ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS}) {
         if (objConcilium.type === factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS) {
             this._retirePosConciliumMember(objConcilium, callerAddress);
@@ -124,12 +128,15 @@ module.exports = class ContractConciliums extends Base {
 
         if (objConcilium.isOpen) throw ('This concilium is open, just join it');
 
-//        if (objConcilium.type !== ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_RR}) {
-        if (objConcilium.type !== factory.BaseConciliumDefinition.CONCILIUM_TYPE_RR) {
-            throw ('this method only for CONCILIUM_TYPE_RR');
-        }
+        global.bIndirectCall = true;
 
-        arrAddresses.forEach(add => this._addRrConciliumMember(objConcilium, add));
+//        if (objConcilium.type === ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_RR}) {
+        if (objConcilium.type === factory.BaseConciliumDefinition.CONCILIUM_TYPE_RR) {
+            arrAddresses.forEach(addr => this._addRrConciliumMember(objConcilium, addr));
+//        } else if (objConcilium.type === ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS}) {
+        } else if (objConcilium.type === factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS) {
+            arrAddresses.forEach(addr => this._addPosConciliumMember(objConcilium, addr, value / arrAddresses.length));
+        }
     }
 
     setFeeCreate(nFeeNew) {
@@ -169,44 +176,55 @@ module.exports = class ContractConciliums extends Base {
         const objConcilium = this._checkConciliumId(conciliumId);
         this._checkCreator(objConcilium, callerAddress);
 
-//        if (objConcilium.type === ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS}) {
-        if (objConcilium.type === factory.BaseConciliumDefinition.CONCILIUM_TYPE_POS) {
-            if (!this._posConciliumMemberExists(objConcilium, callerAddress)) throw ('Unauthorized call');
-//        } else if (objConcilium.type === ${factory.BaseConciliumDefinition.CONCILIUM_TYPE_RR}) {
-        } else if (objConcilium.type === factory.BaseConciliumDefinition.CONCILIUM_TYPE_RR) {
-            if (!this._rrConciliumMemberExists(objConcilium, callerAddress)) throw ('Unauthorized call');
-        }
+        global.bIndirectCall = true;
 
         const oldFees = objConcilium.parameters && objConcilium.parameters.fees ? objConcilium.parameters.fees : {};
         objConcilium.parameters.fees = {...oldFees, ...objNewParameters.fees};
-        objConcilium.parameters.isEnabled = objNewParameters.isEnabled || objConcilium.parameters.isEnabled;
-
-        objConcilium.parameters.document = objNewParameters.document || objConcilium.parameters.document;
+        objConcilium.parameters.isEnabled = objNewParameters.isEnabled !== undefined ?
+            objNewParameters.isEnabled : objConcilium.parameters.isEnabled;
+        objConcilium.parameters.document = objNewParameters.document !== undefined ?
+            objNewParameters.document : objConcilium.parameters.document;
 
         if (!Array.isArray(objConcilium.parameterTXNs)) objConcilium.parameterTXNs = [];
         objConcilium.parameterTXNs.push(contractTx);
     }
 
     // PoS concilium
-    _posConciliumMemberExists(objConcilium, callerAddress) {
+    _getPosConciliumMember(objConcilium, callerAddress) {
         if (!Array.isArray(objConcilium.arrMembers)) objConcilium.arrMembers = [];
-        return !objConcilium.arrMembers.every(objExistedMember => objExistedMember.address !== callerAddress);
+        return objConcilium.arrMembers.find(objExistedMember => objExistedMember.address === callerAddress);
     }
 
-    _addPosConciliumMember(objConcilium) {
-        if (this._posConciliumMemberExists(objConcilium, callerAddress)) throw ('already joined');
+    _addPosConciliumMember(objConcilium, strAddress = callerAddress, nAmount = value) {
+        if (!global.bIndirectCall) throw ('You aren\'t supposed to be here');
 
-        this._checkDepositJoin(objConcilium, value);
+        if (!nAmount) throw (`Have no sense to join with zero amount`);
 
-        objConcilium.arrMembers.push({
-            address: callerAddress,
-            amount: value,
+        const objMemberRecord = this._getPosConciliumMember(objConcilium, strAddress);
+
+        // we allow rejoin with no less than minimum
+        this._checkDepositJoin(objConcilium, nAmount);
+
+        if (objMemberRecord) {
+
+            // value (objMemberRecord) returned by ref, so no need to manipulate array
+            objMemberRecord.amount += nAmount;
+//            objMemberRecord.nHeightToRelease = block.height + ${factory.Constants.concilium.HEIGHT_TO_RELEASE_ADD_ON}
+            objMemberRecord.nHeightToRelease = block.height + factory.Constants.concilium.HEIGHT_TO_RELEASE_ADD_ON;
+        } else {
+            objConcilium.arrMembers.push({
+                address: strAddress,
+                amount: nAmount,
 //            nHeightToRelease: block.height + ${factory.Constants.concilium.HEIGHT_TO_RELEASE_ADD_ON}
-            nHeightToRelease: block.height + factory.Constants.concilium.HEIGHT_TO_RELEASE_ADD_ON
-        });
+                nHeightToRelease: block.height + factory.Constants.concilium.HEIGHT_TO_RELEASE_ADD_ON
+            });
+
+        }
     }
 
     _retirePosConciliumMember(objConcilium, callerAddress) {
+        if (!global.bIndirectCall) throw ('You aren\'t supposed to be here');
+
         const idx = objConcilium.arrMembers.findIndex(member => member.address === callerAddress);
         if (!~idx) throw ('You aren\'t member');
 
@@ -238,11 +256,15 @@ module.exports = class ContractConciliums extends Base {
     }
 
     _addRrConciliumMember(objConcilium, callerAddress) {
+        if (!global.bIndirectCall) throw ('You aren\'t supposed to be here');
+
         if (this._rrConciliumMemberExists(objConcilium, callerAddress)) throw ('already joined');
         objConcilium.addresses.push(callerAddress);
     }
 
     _retireRrConciliumMember(objConcilium, callerAddress) {
+        if (!global.bIndirectCall) throw ('You aren\'t supposed to be here');
+
         const idx = objConcilium.addresses.findIndex(addr => addr === callerAddress);
         if (!~idx) throw ('You aren\'t member');
         objConcilium.addresses.splice(idx, 1);
@@ -260,7 +282,11 @@ module.exports = class ContractConciliums extends Base {
     }
 
     _checkCreator(objConcilium, callerAddress) {
-        if (objConcilium._creator !== callerAddress) throw ('Unauthorized call');
+        if (objConcilium._creator) {
+            if (objConcilium._creator !== callerAddress) throw ('Unauthorized call');
+        } else {
+            this._checkOwner();
+        }
     }
 
     _validateConcilium(objConcilium) {

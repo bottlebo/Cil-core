@@ -297,7 +297,7 @@ describe('Storage tests', () => {
         const patch = new factory.PatchDB(conciliumId);
         const address = generateAddress();
         const data = {value: 10};
-        const strCode = 'getData(){return this._data}';
+        const strCode = '{"add": "(a){this.value+=a;}"}';
         {
             const contract = new factory.Contract({
                 contractData: data,
@@ -315,7 +315,7 @@ describe('Storage tests', () => {
         assert.isOk(contract);
         assert.equal(contract.getConciliumId(), conciliumId);
         assert.deepEqual(contract.getData(), data);
-        assert.equal(contract.getCode(), strCode);
+        assert.deepEqual(contract.getCode(), JSON.parse(strCode));
     });
 
     it('should write to db encoded data (buffers)', async () => {
@@ -329,7 +329,7 @@ describe('Storage tests', () => {
         {
             const contract = new factory.Contract({
                 contractData: {data: 1},
-                contractCode: `let code=1`,
+                contractCode: '{"add": "(a){this.value+=a;}"}',
                 conciliumId
             });
             contract.storeAddress(buffContractAddr);
@@ -366,7 +366,7 @@ describe('Storage tests', () => {
 
     it('should store/read contract', async () => {
         const contractData = {a: 1};
-        const contractCode = 'let a=1;';
+        const contractCode = '{"add": "(a){this.value+=a;}"}';
         const contractAddress = generateAddress();
 
         const patch = new factory.PatchDB();
@@ -385,7 +385,7 @@ describe('Storage tests', () => {
         const contract = await storage.getContract(contractAddress);
         assert.isOk(contract);
         assert.deepEqual(contract.getData(), contractData);
-        assert.equal(contract.getCode(), contractCode);
+        assert.deepEqual(contract.getCode(), JSON.parse(contractCode));
     });
 
     it('should read concilium definitions', async () => {
@@ -648,7 +648,7 @@ describe('Storage tests', () => {
             const addr = generateAddress().toString('hex');
             const hash1 = pseudoRandomBuffer();
             const hash2 = pseudoRandomBuffer();
-            const fakeUtxo = 'fakeUtxo';
+            const fakeUtxo = {filterOutputsForAddress: () => {}};
             storage.getUtxo = sinon.fake.returns(fakeUtxo);
             storage._arrStrWalletAddresses = [addr];
             storage._nWalletAutoincrement = 0;
@@ -659,14 +659,13 @@ describe('Storage tests', () => {
             const arrResults = await storage.walletListUnspent(addr);
 
             assert.equal(arrResults.length, 2);
-            assert.isOk(arrResults.every(utxo => utxo === fakeUtxo));
         });
 
         it('should walletListUnspent (purge missed)', async () => {
             const addr = generateAddress().toString('hex');
             const hash1 = pseudoRandomBuffer();
             const hash2 = pseudoRandomBuffer();
-            const fakeUtxo = 'fakeUtxo';
+            const fakeUtxo = {filterOutputsForAddress: () => {}};
             storage.getUtxo = async (hash) => {
                 if (hash.equals(hash1)) return fakeUtxo;
                 throw 'not found';
@@ -681,7 +680,6 @@ describe('Storage tests', () => {
             const arrResults = await storage.walletListUnspent(addr);
 
             assert.equal(arrResults.length, 1);
-            assert.isOk(arrResults.every(utxo => utxo === fakeUtxo));
 
             assert.isOk(storage._walletCleanupMissed.calledOnce);
             assert.equal(storage._walletCleanupMissed.args[0][0].length, 1);

@@ -12,7 +12,7 @@ const factory = require('./testFactory');
 const {pseudoRandomBuffer, generateAddress} = require('./testUtil');
 const {arrayEquals} = require('../utils');
 
-const createGenesis = (factory, utxoHash) => {
+const createGenesis = async (factory, utxoHash) => {
     const patch = new factory.PatchDB(0);
     const keyPair = factory.Crypto.createKeyPair();
     const buffAddress = factory.Crypto.getAddress(keyPair.publicKey, true);
@@ -24,7 +24,7 @@ const createGenesis = (factory, utxoHash) => {
     patch.createCoins(utxoHash, 80, coins);
 
     const storage = new factory.Storage();
-    storage.applyPatch(patch);
+    await storage.applyPatch(patch);
 
     return {storage, keyPair};
 };
@@ -74,7 +74,7 @@ describe('Application layer', () => {
         const app = new factory.Application();
 
         const utxoHash = pseudoRandomBuffer().toString('hex');
-        const {storage, keyPair} = createGenesis(factory, utxoHash);
+        const {storage, keyPair} = await createGenesis(factory, utxoHash);
         const buffAddress = factory.Crypto.getAddress(keyPair.publicKey, true);
 
         // create tx
@@ -93,11 +93,11 @@ describe('Application layer', () => {
         await app.processTxInputs(tx, patch);
     });
 
-    it('should process TX', async () => {
+    it('should processPayments', async () => {
         const app = new factory.Application();
 
         const utxoHash = pseudoRandomBuffer().toString('hex');
-        const {storage, keyPair} = createGenesis(factory, utxoHash);
+        const {storage, keyPair} = await createGenesis(factory, utxoHash);
         const buffAddress = factory.Crypto.getAddress(keyPair.publicKey, true);
 
         // create tx
@@ -112,8 +112,8 @@ describe('Application layer', () => {
 
         // get utxos from storage, and form object for app.processTx
         const patchUtxos = await storage.getUtxosPatch(tx.utxos);
-
         const {patch} = app.processTxInputs(tx, patchUtxos);
+
         app.processPayments(tx, patch);
     });
 
@@ -121,7 +121,7 @@ describe('Application layer', () => {
         const app = new factory.Application();
 
         const utxoHash = pseudoRandomBuffer().toString('hex');
-        const {storage, keyPair} = createGenesis(factory, utxoHash);
+        const {storage, keyPair} = await createGenesis(factory, utxoHash);
         const buffAddress = factory.Crypto.getAddress(keyPair.publicKey, true);
 
         // create tx
@@ -147,7 +147,7 @@ describe('Application layer', () => {
         const app = new factory.Application();
 
         const utxoHash = pseudoRandomBuffer().toString('hex');
-        const {storage, keyPair} = createGenesis(factory, utxoHash);
+        const {storage, keyPair} = await createGenesis(factory, utxoHash);
         const buffAddress = factory.Crypto.getAddress(keyPair.publicKey, true);
         const anotherKeyPair = factory.Crypto.createKeyPair();
 
@@ -174,7 +174,7 @@ describe('Application layer', () => {
         const app = new factory.Application();
 
         const utxoHash = pseudoRandomBuffer().toString('hex');
-        const {storage, keyPair} = createGenesis(factory, utxoHash);
+        const {storage, keyPair} = await createGenesis(factory, utxoHash);
         const buffAddress = factory.Crypto.getAddress(keyPair.publicKey, true);
         const anotherKeyPair = factory.Crypto.createKeyPair();
 
@@ -197,7 +197,7 @@ describe('Application layer', () => {
         const app = new factory.Application();
 
         const utxoHash = pseudoRandomBuffer().toString('hex');
-        const {storage, keyPair} = createGenesis(factory, utxoHash);
+        const {storage, keyPair} = await createGenesis(factory, utxoHash);
         const buffAddress = factory.Crypto.getAddress(keyPair.publicKey, true);
 
         // create tx
@@ -225,7 +225,7 @@ describe('Application layer', () => {
         const app = new factory.Application();
 
         const utxoHash = pseudoRandomBuffer().toString('hex');
-        const {storage, keyPair} = createGenesis(factory, utxoHash);
+        const {storage, keyPair} = await createGenesis(factory, utxoHash);
         const buffAddress = factory.Crypto.getAddress(keyPair.publicKey, true);
 
         // create tx
@@ -305,17 +305,13 @@ describe('Application layer', () => {
         assert.isOk(contract);
         assert.deepEqual(contract.getData(), {_data: 10, _ownerAddress: callerAddress});
 
-        const strContractCode = contract.getCode();
-        assert.isOk(strContractCode);
-        const objCode = JSON.parse(strContractCode);
+        const objCode = contract.getCode();
         assert.isOk(objCode);
         assert.isOk(arrayEquals(Object.keys(objCode),
             [
                 'changeDefinition', 'addDefinition', 'noArguments', '_validateDefinition', '_checkOwner',
                 '_transferOwnership', '_validateAddress']
         ));
-        console.log(strContractCode);
-
     });
 
     it('should prepare code for exec (just shouldn\'t throw)', async () => {
@@ -424,5 +420,27 @@ describe('Application layer', () => {
 
         assert.isOk(result);
         assert.deepEqual(result, sampleResult);
+    });
+
+    it('should process TX with single claim in txSignature', async () => {
+        const app = new factory.Application();
+
+        const utxoHash = pseudoRandomBuffer().toString('hex');
+        const {storage, keyPair} = await createGenesis(factory, utxoHash);
+        const buffAddress = factory.Crypto.getAddress(keyPair.publicKey, true);
+
+        // create tx
+        const tx = new factory.Transaction();
+        tx.addInput(utxoHash, 12);
+        tx.addInput(utxoHash, 0);
+        tx.addInput(utxoHash, 80);
+        tx.addReceiver(1000, buffAddress);
+        tx.signAllInputs(keyPair.privateKey);
+
+        // get utxos from storage, and form object for app.processTx
+        const patchUtxos = await storage.getUtxosPatch(tx.utxos);
+        const {patch} = app.processTxInputs(tx, patchUtxos);
+
+        app.processPayments(tx, patch);
     });
 });
