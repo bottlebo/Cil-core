@@ -2,7 +2,7 @@ const path = require('path');
 const DUMP_PATH_PREFIX = './swap';
 const DUMP_INTERVAL = 1000;
 const Tick = require('tick-tock');
-const fs = require('fs-ext');
+const fs = require('fs');
 const configs = require('../config/worker.config.json');
 
 module.exports = (Mutex) => {
@@ -11,14 +11,13 @@ module.exports = (Mutex) => {
     constructor(options, key) {
       let _dumpPath, _dumpInterval;
       const config = configs[options.workerConfig];
-      if(config) {
+      if (config) {
         _dumpPath = config.dumpPath;
         _dumpInterval = config.dumpInterval;
       }
       this._pathPrefix = path.resolve(_dumpPath || DUMP_PATH_PREFIX);
-      this._path = `${this._pathPrefix}/${key}.dump`;
+      this._key = key;
       this._lockName = `${key}_lock`;
-      this._fd = null;
       this._pool = [];
       this._locked = false;
 
@@ -60,36 +59,23 @@ module.exports = (Mutex) => {
         this._pool = [];
         this._mutex.release(_lock);
         try {
-          this._fd = fs.openSync(this._path, 'a+');
           this._locked = true;
-          fs.flock(this._fd, 'ex', async (err) => {
+          fs.writeFile(`${this._pathPrefix}/${Date.now().toString()}_${this._key}.dump`, _pool.join('\n'), async (err) => {
             if (err) {
               console.log('Error:', err);
               const _lock = await this._mutex.acquire(this._lockName);
               this._pool = _pool.concat(this._pool);
               this._mutex.release(_lock);
+              this._locked = false;
+              return
             }
-            else {
-              fs.appendFile(this._fd, _pool.join('\n') + '\n', async (err) => {
-                if (err) {
-                  console.log('Error:', err)
-                  const _lock = await this._mutex.acquire(this._lockName);
-                  this._pool = _pool.concat(this._pool);
-                  this._mutex.release(_lock);
-                }
-                fs.flockSync(this._fd, 'un')
-                this._locked = false;
-                fs.closeSync(this._fd);
-              });
-            }
+            this._locked = false;
           });
         }
         catch (err) {
           const _lock = await this._mutex.acquire(this._lockName);
           this._pool = _pool.concat(this._pool);
           this._mutex.release(_lock);
-
-          if (this._fd) fs.closeSync(this._fd);
           console.log('Error:', err)
         }
       }

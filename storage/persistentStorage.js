@@ -241,9 +241,6 @@ module.exports = (factory, factoryOptions) => {
 
                 // save blockInfo
                 if (!blockInfo) blockInfo = new BlockInfo(block.header);
-                // if (this._api) {
-                //     await this._api.saveBlock(block, blockInfo);
-                // }
                 await this.saveBlockInfo(blockInfo);
 
                 if (this._buildTxIndex) {
