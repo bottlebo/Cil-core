@@ -25,7 +25,7 @@ module.exports = (factory) => {
     static toContractDto(objContract) {
       return {
         address: objContract.strContractAddr,
-        code: objContract.contract.getCode(),
+        code: JSON.stringify(objContract.contract.getCode()),
         data: JSON.stringify(objContract.contract.getData()),
         conciliumId: objContract.contract.getConciliumId(),
         balance: objContract.contract.getBalance()
