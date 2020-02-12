@@ -31,6 +31,8 @@ global.logger = {
 const Ipv6TransportWrapper = require('./network/ipv6Transport');
 const DtoSerializerWrapper = require('./dto/dtoSerializer');
 const ApiWrapper = require('./api/api');
+const WorkerWrapper = require('./worker/index');
+
 
 class ProdFactory extends BaseFactory {
     constructor(options, objConstants) {
@@ -39,7 +41,10 @@ class ProdFactory extends BaseFactory {
 
     initSpecific() {
         this._transportImplemetation = Ipv6TransportWrapper(this);
+        this._dtoSerializerImplementation = DtoSerializerWrapper(this);
         this._apiImplementation = ApiWrapper(this);
+        this._workerImplementation = WorkerWrapper(this);
+
     }
 
     get Api() {
@@ -48,6 +53,10 @@ class ProdFactory extends BaseFactory {
      
     get DtoSerializer() {
         return this._dtoSerializerImplementation;
+    }
+
+    get Worker() {
+        return this._workerImplementation;
     }
 }
 
