@@ -40,7 +40,7 @@ const eraseDbContent = async (db) => {
         db.createKeyStream({keyAsBuffer: true, valueAsBuffer: false})
             .on('data', function(data) {
                 arrBuffers.push({type: 'del', key: data});
-//                db.del(data, {keyAsBuffer: true, valueAsBuffer: false});
+                //                db.del(data, {keyAsBuffer: true, valueAsBuffer: false});
             })
             .on('close', function() {
                 resolve();
@@ -102,6 +102,7 @@ module.exports = (factory, factoryOptions) => {
             }
 
             this._mutex = mutex;
+            this._worker = false;
 
             if (options.apiConfig) {
                 this._api = new Api({...options});
@@ -114,6 +115,7 @@ module.exports = (factory, factoryOptions) => {
                 this._blockStateWorker = new BlockStateWorker({...options});
                 this._removeBlockWorker = new RemoveBlockWorker({...options});
                 this._deleteUtxoWorker = new DeleteUtxoWorker({...options});
+                this._worker = true;
             }
         }
 
@@ -251,6 +253,7 @@ module.exports = (factory, factoryOptions) => {
                 }
                 if (this._blockWorker) {
                     await this._blockWorker.dump(block, blockInfo);
+                    await this._blockWorker.flush();
                 }
             });
         }
@@ -291,6 +294,7 @@ module.exports = (factory, factoryOptions) => {
             }
             if (this._removeBlockWorker) {
                 await this._removeBlockWorker.dump(blockHash);
+                await this._removeBlockWorker.flush();
             }
 
         }
@@ -357,6 +361,7 @@ module.exports = (factory, factoryOptions) => {
                 }
                 if (this._blockStateWorker) {
                     await this._blockStateWorker.dump(blockInfo.getHash(), blockInfo.getState());
+                    await this._blockStateWorker.flush();
                 }
             });
         }
@@ -533,6 +538,14 @@ module.exports = (factory, factoryOptions) => {
                 }
                 // BATCH WRITE
                 await this._db.batch(arrOps);
+                //
+                if (this._worker) {
+                    await this._utxoWorker.flush();
+                    await this._deleteUtxoWorker.flush()
+                    await this._contractWorker.flush();
+                    await this._receiptWorker.flush();
+                }
+
             } finally {
                 this._mutex.release(lock);
 
@@ -768,12 +781,12 @@ module.exports = (factory, factoryOptions) => {
             const keyEnd = this.constructor.createKey(WALLET_PREFIX, buffAddress, strLastIndex);
 
             return new Promise(resolve => {
-                    const arrRecords = [];
-                    this._walletStorage
-                        .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
-                        .on('data', (data) => arrRecords.push(data))
-                        .on('close', () => resolve(arrRecords));
-                }
+                const arrRecords = [];
+                this._walletStorage
+                    .createReadStream({gte: keyStart, lte: keyEnd, keyAsBuffer: true, valueAsBuffer: true})
+                    .on('data', (data) => arrRecords.push(data))
+                    .on('close', () => resolve(arrRecords));
+            }
             );
         }
 

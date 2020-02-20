@@ -1,7 +1,5 @@
 const path = require('path');
 const DUMP_PATH_PREFIX = './swap';
-const DUMP_INTERVAL = 1000;
-const Tick = require('tick-tock');
 const fs = require('fs');
 const configs = require('../config/worker.config.json');
 
@@ -22,8 +20,6 @@ module.exports = (Mutex) => {
       this._locked = false;
 
       this._mutex = new Mutex();
-      this._dumpTimer = new Tick(this);
-      this._dumpTimer.setInterval(`${key}_timer`, this._flush, _dumpInterval || DUMP_INTERVAL);
     }
     async _dumpObj(obj) {
       const _lock = await this._mutex.acquire(this._lockName);
@@ -49,36 +45,36 @@ module.exports = (Mutex) => {
       }
       this._mutex.release(_lock);
     }
-    async _flush() {
-      if (this._locked) return;
-      if (this._pool.length) {
-        let _pool = [];
+    async flush() {
+        if (this._locked) return;
+        if (this._pool.length) {
+          let _pool = [];
 
-        const _lock = await this._mutex.acquire(this._lockName);
-        _pool = [...this._pool];
-        this._pool = [];
-        this._mutex.release(_lock);
-        try {
-          this._locked = true;
-          fs.writeFile(`${this._pathPrefix}/${Date.now().toString()}_${this._key}.dump`, _pool.join('\n'), async (err) => {
-            if (err) {
-              console.log('Error:', err);
-              const _lock = await this._mutex.acquire(this._lockName);
-              this._pool = _pool.concat(this._pool);
-              this._mutex.release(_lock);
-              this._locked = false;
-              return
-            }
-            this._locked = false;
-          });
-        }
-        catch (err) {
           const _lock = await this._mutex.acquire(this._lockName);
-          this._pool = _pool.concat(this._pool);
+          _pool = [...this._pool];
+          this._pool = [];
           this._mutex.release(_lock);
-          console.log('Error:', err)
+          try {
+            this._locked = true;
+            fs.writeFile(`${this._pathPrefix}/${Date.now().toString()}_${this._key}.dump`, _pool.join('\n'), async (err) => {
+              if (err) {
+                console.log('Error:', err);
+                const _lock = await this._mutex.acquire(this._lockName);
+                this._pool = _pool.concat(this._pool);
+                this._mutex.release(_lock);
+                this._locked = false;
+                return
+              }
+              this._locked = false;
+            });
+          }
+          catch (err) {
+            const _lock = await this._mutex.acquire(this._lockName);
+            this._pool = _pool.concat(this._pool);
+            this._mutex.release(_lock);
+            console.log('Error:', err);
+          }
         }
-      }
     }
   }
 }

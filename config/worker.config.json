@@ -1,6 +1,5 @@
 {
   "devel": {
-    "dumpPath": "./swap",
-    "dumpInterval": 1000
+    "dumpPath": "./swap"
   }
 }
