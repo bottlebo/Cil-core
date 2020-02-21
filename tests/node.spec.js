@@ -124,7 +124,7 @@ const createSimpleFork = async (callback) => {
     return [genesis, block1, block2, block3].map(block => block.getHash());
 };
 
-const createInternalUtxo = () => new factory.UTXO({txHash: pseudoRandomBuffer()})
+const createInternalUtxo = () => new factory.UTXO({txHash: pseudoRandomBuffer().toString('hex')})
     .addCoins(0, factory.Coins.createFromData({amount: 100, receiverAddr: generateAddress()}));
 
 describe('Node tests', async () => {
@@ -745,7 +745,7 @@ describe('Node tests', async () => {
     it('should process MSG_GET_MEMPOOL', async () => {
         const node = new factory.Node();
         await node.ensureLoaded();
-        node._mempool.getContent = sinon.fake.returns([pseudoRandomBuffer()]);
+        node._mempool.getLocalTxnHashes = sinon.fake.returns([pseudoRandomBuffer()]);
 
         const peer = createDummyPeer(factory);
         peer.pushMessage = sinon.fake();
@@ -798,12 +798,27 @@ describe('Node tests', async () => {
 
     it('should unwind block to mempool', async () => {
         const node = new factory.Node();
-        const block = createDummyBlock(factory);
-        const tx = new factory.Transaction(block.txns[0]);
+        await node.ensureLoaded();
+
+        const block = createDummyBlock(factory, 0, 1);
+        const tx = new factory.Transaction(block.txns[1]);
+        node._validateTxLight = sinon.fake();
 
         await node._unwindBlock(block);
-        assert.isOk(node._mempool.hasTx(tx.hash()));
 
+        assert.isOk(node._mempool.hasTx(tx.hash()));
+    });
+
+    it('should unwind block, but TX is bad, so it miss the mempool', async () => {
+        const node = new factory.Node();
+        await node.ensureLoaded();
+
+        const block = createDummyBlock(factory, 0, 1);
+        const tx = new factory.Transaction(block.txns[1]);
+
+        await node._unwindBlock(block);
+
+        assert.isOk(node._mempool.isBadTx(tx.hash()));
     });
 
     it('should reconnect peers', async function() {
@@ -1747,7 +1762,7 @@ describe('Node tests', async () => {
             const strTxHash = pseudoRandomBuffer().toString('hex');
 
             node._createInternalTx = sinon.fake.returns(
-                new factory.UTXO({txHash: pseudoRandomBuffer()})
+                new factory.UTXO({txHash: pseudoRandomBuffer().toString('hex')})
                     .addCoins(0, factory.Coins.createFromData({amount: 100, receiverAddr: generateAddress()}))
             );
             const {sendCoins} = node._createCallbacksForApp(

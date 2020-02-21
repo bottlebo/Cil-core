@@ -40,7 +40,7 @@ const eraseDbContent = async (db) => {
         db.createKeyStream({keyAsBuffer: true, valueAsBuffer: false})
             .on('data', function(data) {
                 arrBuffers.push({type: 'del', key: data});
-                //                db.del(data, {keyAsBuffer: true, valueAsBuffer: false});
+//                db.del(data, {keyAsBuffer: true, valueAsBuffer: false});
             })
             .on('close', function() {
                 resolve();
@@ -455,7 +455,7 @@ module.exports = (factory, factoryOptions) => {
             const buffUtxo = await this._db.get(key).catch(err => debug(err));
             if (!buffUtxo) throw new Error(`Storage: UTXO with hash ${hash.toString('hex')} not found !`);
 
-            return raw ? buffUtxo : new UTXO({txHash: hash, data: buffUtxo});
+            return raw ? buffUtxo : new UTXO({txHash: hash.toString('hex'), data: buffUtxo});
         }
 
         /**
@@ -871,9 +871,14 @@ module.exports = (factory, factoryOptions) => {
             const arrAddrRecords = await this._walletReadAddressRecords(strAddress);
             const arrKeysToCleanup = [];
             const arrResult = [];
+            const setHashes = new Set();
 
             for (let {key, value: hash} of arrAddrRecords) {
                 try {
+                    const strHash = hash.toString('hex');
+                    if (setHashes.has(strHash)) throw ('duplicate. marked for cleanup');
+                    setHashes.add(strHash);
+
                     const utxo = await this.getUtxo(hash);
                     arrResult.push(utxo);
                 } catch (e) {
@@ -883,7 +888,9 @@ module.exports = (factory, factoryOptions) => {
 
             if (arrKeysToCleanup.length) await this._walletCleanupMissed(arrKeysToCleanup);
 
-            return arrResult.map(utxo => utxo.filterOutputsForAddress(strAddress));
+            return arrResult
+                .map(utxo => utxo.filterOutputsForAddress(strAddress))
+                .filter(utxo => !utxo.isEmpty());
         }
 
         async walletWatchAddress(address) {
@@ -1073,7 +1080,7 @@ module.exports = (factory, factoryOptions) => {
         async countWallets() {
             const setAddresses = new Set();
             for await (let {key, value} of this.readUtxos()) {
-                const utxo = new UTXO({txHash: key.slice(UTXO_PREFIX.length), data: value});
+                const utxo = new UTXO({txHash: key.slice(UTXO_PREFIX.length).toString('hex'), data: value});
                 utxo.getReceivers().forEach(addr => setAddresses.add(addr));
             }
             return setAddresses.size;
@@ -1138,7 +1145,7 @@ module.exports = (factory, factoryOptions) => {
          * @param {Object} objEncryptedPk - @see Crypto.encrypt
          * @return {Promise<void>}
          */
-        async writeKeyStore(strAddress, strAccountName, objEncryptedPk) {
+        async writeKeystore(strAddress, strAccountName, objEncryptedPk) {
             const strKeyStoreContent = JSON.stringify({
                 address: 'Ux' + strAddress,
                 ...prepareForStringifyObject(objEncryptedPk),
@@ -1151,5 +1158,21 @@ module.exports = (factory, factoryOptions) => {
             await this._readAccount(strAccountName);
         }
 
+        /**
+         *
+         * @param {String} strAccountName
+         * @return {Promise<Map<any, any>>}
+         */
+        async getKeystoresForAccount(strAccountName) {
+            const mapResult = new Map();
+
+            const strPath = `${this._strAccountPath}/${strAccountName}`;
+
+            for (let strAddress of await this.getAccountAddresses(strAccountName)) {
+                mapResult.set(strAddress, JSON.parse(await fs.readFile(`${strPath}/${strAddress}`, 'utf8')));
+            }
+
+            return mapResult;
+        }
     };
 };

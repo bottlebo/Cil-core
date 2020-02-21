@@ -7,7 +7,6 @@ const v8 = require('v8');
 const http = require('http');
 const https = require('https');
 
-
 /**
  *
  * @param {Array} arrNumbers
@@ -34,8 +33,7 @@ const deepCloneObject = (objToClone) => {
 
 const arrayIntersection = (array1, array2) => {
     const cache = new Set(array1);
-    const result = [];
-    for (let elem of array2) if (cache.has(elem)) result.push(elem);
+    return array2.filter(elem => cache.has(elem));
     return result;
 };
 
@@ -140,6 +138,32 @@ const prepareForStringifyObject = (obj) => {
         }
     }
     return resultObject;
+};
+
+/**
+ *
+ * @param arrUtxos
+ * @param bStable
+ * @param mapUtxoAddr
+ * @return {[{hash, nOut, amount, isStable}]}
+ */
+const finePrintUtxos = (arrUtxos, bStable, mapUtxoAddr) => {
+    const arrResult = [];
+    arrUtxos.forEach(utxo => {
+        utxo.getIndexes()
+            .map(idx => [idx, utxo.coinsAtIndex(idx)])
+            .forEach(([idx, coins]) => {
+                const strReceiver = mapUtxoAddr ? mapUtxoAddr.get(utxo) : undefined;
+                arrResult.push({
+                    hash: utxo.getTxHash(),
+                    nOut: idx,
+                    amount: coins.getAmount(),
+                    isStable: bStable,
+                    receiver: strReceiver
+                });
+            });
+    });
+    return arrResult;
 };
 
 /**
@@ -381,9 +405,17 @@ module.exports = {
         return decryptPkFileContent(Crypto, encodedContent, password);
     },
 
+    createObjInvocationCode(strMethod, arrArguments) {
+        return {
+            method: strMethod,
+            arrArguments
+        };
+    },
+
     decryptPkFileContent,
     mapEnvToOptions,
     mapOptionsToNodeParameters,
     GCD,
-    createPeerTag
+    createPeerTag,
+    finePrintUtxos
 };

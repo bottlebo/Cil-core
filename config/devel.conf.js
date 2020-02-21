@@ -27,7 +27,7 @@ module.exports = {
 
         strIdent: 'Devel',
 
-        protocolVersion: 0x0130,
+        protocolVersion: 0x0131,
         network: 0x12880004,
         port: 18223,
         rpcPort: 18222,
@@ -54,6 +54,8 @@ module.exports = {
             HEIGHT_FORK_CHANGE: 8992,
             HEIGHT_FORK_SERIALIZER_FIX2: 9145,
             HEIGHT_FORK_SERIALIZER_FIX3: 55700
-        }
+        },
+
+        WITNESS_UTXOS_JOIN: 5
     }
 };

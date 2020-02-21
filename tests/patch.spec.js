@@ -17,7 +17,7 @@ const createUtxo = (arrIndexes) => {
     return utxo;
 };
 
-const createInternalUtxo = () => new factory.UTXO({txHash: pseudoRandomBuffer()})
+const createInternalUtxo = () => new factory.UTXO({txHash: pseudoRandomBuffer().toString('hex')})
     .addCoins(0, factory.Coins.createFromData({amount: 100, receiverAddr: generateAddress()}));
 
 describe('PatchDB', () => {
@@ -86,7 +86,7 @@ describe('PatchDB', () => {
     });
 
     it('should SET/GET UTXO', async () => {
-        const txHash = pseudoRandomBuffer(32);
+        const txHash = pseudoRandomBuffer().toString('hex');
 
         const utxo = new factory.UTXO({txHash});
         const coins = new factory.Coins(10, generateAddress());
@@ -338,8 +338,8 @@ describe('PatchDB', () => {
         patch.spendCoins(utxo.clone(), 12, pseudoRandomBuffer());
         patch2.spendCoins(utxo.clone(), 12, pseudoRandomBuffer());
 
-        assert.throws(() => patch.merge(patch2), /Conflict on .{64} idx 12/);
-        assert.throws(() => patch2.merge(patch), /Conflict on .{64} idx 12/);
+        assert.throws(() => patch.merge(patch2), /Patch merge: conflict on .{64} idx 12/);
+        assert.throws(() => patch2.merge(patch), /Patch merge: conflict on .{64} idx 12/);
     });
 
     it('should fail MERGE patches (same outputs same spending TX)', async () => {
