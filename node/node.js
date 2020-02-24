@@ -1753,7 +1753,7 @@ module.exports = (factory, factoryOptions) => {
                     if (!bi) throw new Error('_buildMainDag: Found missed blocks!');
                     if (bi.isBad()) throw new Error(`_buildMainDag: found bad block ${hash} in final DAG!`);
 
-                    this._mainDag.addBlock(bi);
+                    await this._mainDag.addBlock(bi);
 
                     for (let parentHash of bi.parentHashes) {
                         if (!this._mainDag.getBlockInfo(parentHash)) setNextLevel.add(parentHash);
@@ -1857,7 +1857,7 @@ module.exports = (factory, factoryOptions) => {
         async _storeBlockAndInfo(block, blockInfo, bOnlyDag) {
             typeforce(typeforce.tuple(typeforce.oneOf(types.Block, undefined), types.BlockInfo), arguments);
 
-            this._mainDag.addBlock(blockInfo);
+            await this._mainDag.addBlock(blockInfo);
             if (bOnlyDag) return;
 
             if (blockInfo.isBad()) {
@@ -1921,6 +1921,9 @@ module.exports = (factory, factoryOptions) => {
             for (let i = 1; i < block.txns.length; i++) {
                 await this._processReceivedTx(new Transaction(block.txns[i]), true).catch(err => {});
             }
+
+            await this._pendingBlocks.removeBlock(block.getHash());
+            await this._mainDag.removeBlock(block.getHash());
         }
 
         /**
@@ -2377,7 +2380,7 @@ module.exports = (factory, factoryOptions) => {
 
             for await (let {value} of this._storage.readBlocks()) {
                 const block = new factory.Block(value);
-                this._mainDag.addBlock(new BlockInfo(block.header));
+                await this._mainDag.addBlock(new BlockInfo(block.header));
             }
 
             this._queryPeerForRestOfBlocks = this._requestUnknownBlocks = () => {
