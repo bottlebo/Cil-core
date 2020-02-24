@@ -1,5 +1,11 @@
 {
   "devel": {
     "dumpPath": "./swap"
+  },
+  "docker-test": {
+    "dumpPath": "./workerExchange"
+  },
+  "docker-prod": {
+    "dumpPath": "./workerExchange"
   }
 }

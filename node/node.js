@@ -1571,6 +1571,7 @@ module.exports = (factory, factoryOptions) => {
                 setBlocksToRollback,
                 arrTopStable
             } = result;
+
             logger.log(`Blocks ${Array.from(setStableBlocks.keys())} are stable now`);
 
             await this._updateLastAppliedBlocks(arrTopStable);
@@ -1922,8 +1923,10 @@ module.exports = (factory, factoryOptions) => {
                 await this._processReceivedTx(new Transaction(block.txns[i]), true).catch(err => {});
             }
 
-            await this._pendingBlocks.removeBlock(block.getHash());
-            await this._mainDag.removeBlock(block.getHash());
+            try {
+                await this._pendingBlocks.removeBlock(block.getHash());
+                await this._mainDag.removeBlock(block.getHash());
+            } catch (e) {}
         }
 
         /**
@@ -2270,6 +2273,7 @@ module.exports = (factory, factoryOptions) => {
             if (buffSourceTx) {
                 const receipt = await this._storage.getTxReceipt(buffSourceTx);
                 const coins = receipt.getCoinsForTx(strTxHash);
+
                 return formResult(
                     {coins: coins.getRawData(), from: buffSourceTx.toString('hex')},
                     'internal',
