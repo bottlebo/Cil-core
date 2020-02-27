@@ -17,8 +17,7 @@ module.exports = (Mutex) => {
       this._key = key;
       this._lockName = `${key}_lock`;
       this._pool = [];
-      this._locked = false;
-
+      this._ticks = 100;
       this._mutex = new Mutex();
     }
     async _dumpObj(obj) {
@@ -46,35 +45,26 @@ module.exports = (Mutex) => {
       this._mutex.release(_lock);
     }
     async flush() {
-        if (this._locked) return;
-        if (this._pool.length) {
-          let _pool = [];
+      if (this._pool.length) {
+        let _pool = [];
 
-          const _lock = await this._mutex.acquire(this._lockName);
-          _pool = [...this._pool];
-          this._pool = [];
-          this._mutex.release(_lock);
-          try {
-            this._locked = true;
-            fs.writeFile(`${this._pathPrefix}/${Date.now().toString()}_${this._key}.dump`, _pool.join('\n'), async (err) => {
-              if (err) {
-                console.log('Error:', err);
-                const _lock = await this._mutex.acquire(this._lockName);
-                this._pool = _pool.concat(this._pool);
-                this._mutex.release(_lock);
-                this._locked = false;
-                return
-              }
-              this._locked = false;
-            });
-          }
-          catch (err) {
-            const _lock = await this._mutex.acquire(this._lockName);
-            this._pool = _pool.concat(this._pool);
-            this._mutex.release(_lock);
-            console.log('Error:', err);
-          }
+        const _lock = await this._mutex.acquire(this._lockName);
+        _pool = [...this._pool];
+        this._pool = [];
+        try {
+          const _file = `${Date.now().toString()}${this._ticks.toString()}_${this._key}`;
+          this._ticks++;
+          if (this._ticks > 999) this._ticks = 100
+          fs.writeFileSync(`${this._pathPrefix}/${_file}.dump`, _pool.join('\n'));
         }
+        catch (err) {
+          this._pool = _pool.concat(this._pool);
+          console.log('worker error:', err);
+        }
+        finally {
+          this._mutex.release(_lock);
+        }
+      }
     }
   }
 }
