@@ -524,6 +524,8 @@ module.exports = (factory, factoryOptions) => {
 
                 let arrTxToProcess;
                 const arrUtxos = await this._storage.walletListUnspent(this._wallet.address);
+
+                // There is possible situation with 1 UTXO having numerous output. It will be count as 1
                 if (arrUtxos.length > Constants.WITNESS_UTXOS_JOIN) {
                     arrTxToProcess = [
                         this._createJoinTx(arrUtxos, conciliumId),
@@ -553,6 +555,7 @@ module.exports = (factory, factoryOptions) => {
                 if (arrBadHashes.length) this._mempool.removeTxns(arrBadHashes);
 
                 block.finish(totalFee, this._wallet.address, await this._getFeeSizePerInput(conciliumId));
+                this._processBlockCoinbaseTX(block, totalFee, patchMerged);
 
                 debugWitness(
                     `Witness: "${this._debugAddress}". Block ${block.hash()} with ${block.txns.length - 1} TXNs ready`);
@@ -621,14 +624,16 @@ module.exports = (factory, factoryOptions) => {
                 }
             }
 
+            logger.debug(`Created TX with ${tx.inputs.length} inputs`);
+
             return tx;
         }
 
         async _ensureWalletIndex() {
             try {
                 await this._storage.walletWatchAddress(this._wallet.address);
-                await this._storage.walletReIndex();
             } catch (e) {}
+            await this._storage.walletReIndex();
         }
     };
 };
