@@ -553,7 +553,7 @@ module.exports = (factory, factoryOptions) => {
         async _handleGetMempool(peer) {
             const inventory = new Inventory();
 
-            const arrLocalTxHashes = this._mempool.getContent();
+            const arrLocalTxHashes = this._mempool.getLocalTxnHashes();
             arrLocalTxHashes.forEach(hash => inventory.addTxHash(hash));
             debugMsg(
                 `(address: "${this._debugAddress}") sending ${arrLocalTxHashes.length} mempool TXns to "${peer.address}"`);
@@ -956,7 +956,12 @@ module.exports = (factory, factoryOptions) => {
                         return utxo.toObject();
                     case 'getWitnesses':
                         return await this._getAllWitnesses();
-                        break;
+                    case 'getConnectedPeers':
+                        return this._peerManager.getConnectedPeers();
+                    case 'getBannedPeers':
+                        return this._peerManager.getBannedPeers();
+                    case 'getMempoolContent':
+                        return this._mempool.getContent();
                     default:
                         throw new Error(`Unsupported method ${event}`);
                 }
@@ -1503,6 +1508,7 @@ module.exports = (factory, factoryOptions) => {
             // should start from 1, because coinbase tx need different processing
             for (let i = 1; i < blockTxns.length; i++) {
                 const tx = new Transaction(blockTxns[i]);
+                assert(tx.conciliumId === block.conciliumId, `Tx ${tx.getHash()} conciliumId differ from block's one`);
                 const {fee, patchThisTx} = await this._processTx(patchState, isGenesis, tx);
                 blockFees += fee;
                 patchState = patchState.merge(patchThisTx, true);
@@ -1569,11 +1575,6 @@ module.exports = (factory, factoryOptions) => {
 
             await this._updateLastAppliedBlocks(arrTopStable);
 
-            for (let blockHash of setBlocksToRollback) {
-                await this._unwindBlock(await this._storage.getBlock(blockHash));
-            }
-            await this._storage.removeBadBlocks(setBlocksToRollback);
-
             let nHeightMax = 0;
             for (let hash of setStableBlocks) {
                 const bi = this._mainDag.getBlockInfo(hash);
@@ -1584,6 +1585,16 @@ module.exports = (factory, factoryOptions) => {
             }
 
             await this._storage.applyPatch(patchToApply, nHeightMax);
+
+            // revalidate local TXns. it affects only local TXns, so it doesn't duplicate
+            // validation in _unwindBlock
+            this._patchLocalTxns = undefined;
+            await this._ensureLocalTxnsPatch();
+
+            for (let blockHash of setBlocksToRollback) {
+                await this._unwindBlock(await this._storage.getBlock(blockHash));
+            }
+            await this._storage.removeBadBlocks(setBlocksToRollback);
 
             if (this._rpc) {
                 this._rpc.informWsSubscribersStableBlocks(Array.from(setStableBlocks.keys()));
@@ -1742,7 +1753,7 @@ module.exports = (factory, factoryOptions) => {
                     if (!bi) throw new Error('_buildMainDag: Found missed blocks!');
                     if (bi.isBad()) throw new Error(`_buildMainDag: found bad block ${hash} in final DAG!`);
 
-                    this._mainDag.addBlock(bi);
+                    await this._mainDag.addBlock(bi);
 
                     for (let parentHash of bi.parentHashes) {
                         if (!this._mainDag.getBlockInfo(parentHash)) setNextLevel.add(parentHash);
@@ -1846,7 +1857,7 @@ module.exports = (factory, factoryOptions) => {
         async _storeBlockAndInfo(block, blockInfo, bOnlyDag) {
             typeforce(typeforce.tuple(typeforce.oneOf(types.Block, undefined), types.BlockInfo), arguments);
 
-            this._mainDag.addBlock(blockInfo);
+            await this._mainDag.addBlock(blockInfo);
             if (bOnlyDag) return;
 
             if (blockInfo.isBad()) {
@@ -1905,9 +1916,16 @@ module.exports = (factory, factoryOptions) => {
          */
         async _unwindBlock(block) {
             logger.log(`(address: "${this._debugAddress}") Unwinding txns from block: "${block.getHash()}"`);
-            for (let objTx of block.txns) {
-                this._mempool.addTx(new Transaction(objTx));
+
+            // skip coinbase
+            for (let i = 1; i < block.txns.length; i++) {
+                await this._processReceivedTx(new Transaction(block.txns[i]), true).catch(err => {});
             }
+
+            try {
+                await this._pendingBlocks.removeBlock(block.getHash());
+                await this._mainDag.removeBlock(block.getHash());
+            } catch (e) {}
         }
 
         /**
@@ -2364,7 +2382,7 @@ module.exports = (factory, factoryOptions) => {
 
             for await (let {value} of this._storage.readBlocks()) {
                 const block = new factory.Block(value);
-                this._mainDag.addBlock(new BlockInfo(block.header));
+                await this._mainDag.addBlock(new BlockInfo(block.header));
             }
 
             this._queryPeerForRestOfBlocks = this._requestUnknownBlocks = () => {

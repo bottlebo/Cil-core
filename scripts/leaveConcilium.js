@@ -64,9 +64,6 @@ function leaveConcilium(conciliumId, wallet, arrUtxos) {
         console.log(`Using UTXo ${utxo.hash} idx ${utxo.nOut}`);
         tx.addInput(utxo.hash, utxo.nOut);
     }
-    for (let i in arrUtxos) {
-        tx.claim(parseInt(i), wallet.privateKey);
-    }
 
     tx.signForContract(wallet.privateKey);
 

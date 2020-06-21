@@ -441,7 +441,7 @@ describe('Storage tests', () => {
     it('should get UTXO', async () => {
         const storage = new factory.Storage();
 
-        const hash = pseudoRandomBuffer();
+        const hash = pseudoRandomBuffer().toString('hex');
         const coins = new factory.Coins(1e5, generateAddress());
         const utxo = new factory.UTXO({txHash: hash});
         utxo.addCoins(0, coins);
@@ -566,11 +566,6 @@ describe('Storage tests', () => {
             return assert.isRejected(storage._ensureWalletInitialized());
         });
 
-        it('should throw _walletWriteAddressUtxo (no wallet support)', async () => {
-            const storage = new factory.Storage();
-            return assert.isRejected(storage._walletWriteAddressUtxo());
-        });
-
         it('should throw walletListUnspent (no wallet support)', async () => {
             const storage = new factory.Storage();
             return assert.isRejected(storage.walletListUnspent());
@@ -610,14 +605,11 @@ describe('Storage tests', () => {
             const hash1 = pseudoRandomBuffer();
             const hash2 = pseudoRandomBuffer();
 
-            await storage._walletWriteAddressUtxo(addr, hash1.toString('hex'));
-            await storage._walletWriteAddressUtxo(addr, hash2.toString('hex'));
-
-            // this UTXO doesn't belongs to address
-            await storage._walletWriteAddressUtxo(
-                generateAddress().toString('hex'),
-                pseudoRandomBuffer().toString('hex')
-            );
+            await storage._walletWriteNewUtxosBatch([
+                [hash1.toString('hex'), addr],
+                [hash2.toString('hex'), addr],
+                [pseudoRandomBuffer().toString('hex'), generateAddress().toString('hex')]
+            ]);
 
             // read it back
             const arrHashes = await storage._walletReadAddressRecords(addr);
@@ -648,13 +640,15 @@ describe('Storage tests', () => {
             const addr = generateAddress().toString('hex');
             const hash1 = pseudoRandomBuffer();
             const hash2 = pseudoRandomBuffer();
-            const fakeUtxo = {filterOutputsForAddress: () => {}};
+            const fakeUtxo = {filterOutputsForAddress: () => ({isEmpty: () => false})};
             storage.getUtxo = sinon.fake.returns(fakeUtxo);
             storage._arrStrWalletAddresses = [addr];
             storage._nWalletAutoincrement = 0;
 
-            await storage._walletWriteAddressUtxo(addr, hash1.toString('hex'));
-            await storage._walletWriteAddressUtxo(addr, hash2.toString('hex'));
+            await storage._walletWriteNewUtxosBatch([
+                [hash1.toString('hex'), addr],
+                [hash2.toString('hex'), addr]
+            ]);
 
             const arrResults = await storage.walletListUnspent(addr);
 
@@ -665,7 +659,9 @@ describe('Storage tests', () => {
             const addr = generateAddress().toString('hex');
             const hash1 = pseudoRandomBuffer();
             const hash2 = pseudoRandomBuffer();
-            const fakeUtxo = {filterOutputsForAddress: () => {}};
+            const fakeUtxo = {filterOutputsForAddress: () => ({isEmpty: () => false})};
+
+            // fake one missed
             storage.getUtxo = async (hash) => {
                 if (hash.equals(hash1)) return fakeUtxo;
                 throw 'not found';
@@ -674,8 +670,10 @@ describe('Storage tests', () => {
             storage._nWalletAutoincrement = 0;
             storage._walletCleanupMissed = sinon.fake();
 
-            await storage._walletWriteAddressUtxo(addr, hash1.toString('hex'));
-            await storage._walletWriteAddressUtxo(addr, hash2.toString('hex'));
+            await storage._walletWriteNewUtxosBatch([
+                [hash1.toString('hex'), addr],
+                [hash2.toString('hex'), addr]
+            ]);
 
             const arrResults = await storage.walletListUnspent(addr);
 
@@ -719,20 +717,20 @@ describe('Storage tests', () => {
             const coins2 = new factory.Coins(1e5, buffAddr2);
 
             // this utxo contains only coins of addr1
-            const hash1 = pseudoRandomBuffer();
+            const hash1 = pseudoRandomBuffer().toString('hex');
             const utxo1 = new factory.UTXO({txHash: hash1});
             utxo1.addCoins(0, coins1);
             utxo1.addCoins(1, coins1);
             utxo1.addCoins(2, coins1);
 
             // this utxo contains only coins of addr2
-            const hash2 = pseudoRandomBuffer();
+            const hash2 = pseudoRandomBuffer().toString('hex');
             const utxo2 = new factory.UTXO({txHash: hash2});
             utxo2.addCoins(0, coins2);
             utxo2.addCoins(2, coins2);
 
             // this utxo contains coins for both addresses
-            const hash3 = pseudoRandomBuffer();
+            const hash3 = pseudoRandomBuffer().toString('hex');
             const utxo3 = new factory.UTXO({txHash: hash3});
             utxo3.addCoins(0, coins1);
             utxo3.addCoins(10, coins2);
@@ -791,7 +789,7 @@ describe('Storage tests', () => {
         let storage;
 
         function generateUtxo() {
-            const hash = pseudoRandomBuffer();
+            const hash = pseudoRandomBuffer().toString('hex');
             const coins = new factory.Coins(1e5, generateAddress());
             const utxo = new factory.UTXO({txHash: hash});
             utxo.addCoins(0, coins);

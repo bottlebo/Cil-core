@@ -64,10 +64,13 @@ module.exports = (factory) => {
         getConnectedPeers(tag) {
             return Array
                 .from(this._mapAllPeers.values())
-                .reduce((arrPeers, peer) => {
-                    if (!peer.disconnected && peer.hasTag(tag)) arrPeers.push(peer);
-                    return arrPeers;
-                }, []);
+                .filter(peer => !peer.disconnected && peer.hasTag(tag));
+        }
+
+        getBannedPeers() {
+            return Array
+                .from(this._mapAllPeers.values())
+                .filter(peer => peer.isBanned());
         }
 
         /**
@@ -112,7 +115,9 @@ module.exports = (factory) => {
          * @param {Connection} connection - TCP connection
          */
         addCandidateConnection(connection) {
-            assert(!this.isBannedAddress(connection.remoteAddress), 'You are banned');
+            assert(!this.isBannedAddress(connection.remoteAddress),
+                `Incoming connection from ${connection.remoteAddress} dropped. Peer is banned`
+            );
 
             const newPeer = new Peer({connection, transport: this._transport});
             const key = this._createKey(newPeer.address, newPeer.port);

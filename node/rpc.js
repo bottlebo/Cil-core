@@ -2,10 +2,11 @@
 const typeforce = require('typeforce');
 const assert = require('assert');
 const debugLib = require('debug');
+const {version} = require('../package');
 
 const rpc = require('json-rpc2');
 
-const {asyncRPC, prepareForStringifyObject, stripAddressPrefix} = require('../utils');
+const {asyncRPC, prepareForStringifyObject, stripAddressPrefix, finePrintUtxos} = require('../utils');
 const types = require('../types');
 
 module.exports = ({Constants, Transaction, StoredWallet, UTXO}) =>
@@ -62,6 +63,12 @@ module.exports = ({Constants, Transaction, StoredWallet, UTXO}) =>
             this._server.expose('unlockAccount', asyncRPC(this.unlockAccount.bind(this)));
             this._server.expose('importPrivateKey', asyncRPC(this.importPrivateKey.bind(this)));
             this._server.expose('getNewAddress', asyncRPC(this.getNewAddress.bind(this)));
+
+            this._server.expose('sendToAddress', asyncRPC(this.sendToAddress.bind(this)));
+            this._server.expose('callContract', asyncRPC(this.callContract.bind(this)));
+
+            this._server.expose('nodeStatus', asyncRPC(this.nodeStatus.bind(this)));
+
             this._server.listen(rpcPort, rpcAddress);
         }
 
@@ -260,8 +267,8 @@ module.exports = ({Constants, Transaction, StoredWallet, UTXO}) =>
                     .map(utxo => utxo.filterOutputsForAddress(strAddress));
 
             return prepareForStringifyObject([].concat(
-                this._finePrintUtxos(arrStableUtxos, true),
-                this._finePrintUtxos(arrPendingUtxos, false)
+                finePrintUtxos(arrStableUtxos, true),
+                finePrintUtxos(arrPendingUtxos, false)
             ));
         }
 
@@ -338,6 +345,28 @@ module.exports = ({Constants, Transaction, StoredWallet, UTXO}) =>
             return {address: kp.address, privateKey: kp.privateKey};
         }
 
+        async sendToAddress(args) {
+            const tx = await this._storedWallets.sendToAddress(args);
+
+            await this._nodeInstance.rpcHandler({
+                event: 'tx',
+                content: tx
+            });
+
+            return tx.getHash();
+        }
+
+        async callContract(args) {
+            const tx = await this._storedWallets.callContract(args);
+
+            await this._nodeInstance.rpcHandler({
+                event: 'tx',
+                content: tx
+            });
+
+            return tx.getHash();
+        }
+
         async getAccountBalance(args) {
             const arrResult = await this.getAccountUnspent(args);
 
@@ -353,18 +382,19 @@ module.exports = ({Constants, Transaction, StoredWallet, UTXO}) =>
             const arrAccountAddresses = await this._storedWallets.getAccountAddresses(strAccountName);
             assert(Array.isArray(arrAccountAddresses), 'Accound doesn\'t exist');
 
-            let arrOfArrayOfStableUtxos = [];
+            const mapUtxoAddr = new Map();
             for (let strAddress of arrAccountAddresses) {
-                arrOfArrayOfStableUtxos.push(await this._storedWallets.walletListUnspent(strAddress));
+                const arrUtxos = await this._storedWallets.walletListUnspent(strAddress);
+                for (let utxo of arrUtxos) {
+                    mapUtxoAddr.set(utxo, strAddress);
+                }
             }
 
-            // flatten results
-            arrOfArrayOfStableUtxos = [].concat.apply([], arrOfArrayOfStableUtxos);
-
             const storage = this._nodeInstance.storage;
+            let arrFilteredArrayOfStableUtxos = [];
+
             if (strHashSince) {
-                const arrFilteredArrayOfStableUtxos = [];
-                for (let utxo of arrOfArrayOfStableUtxos) {
+                for (let [utxo] of mapUtxoAddr) {
                     const buffSourceTx = await storage.findInternalTx(utxo.getTxHash()) ||
                                          Buffer.from(utxo.getTxHash(), 'hex');
                     const strBlockHash = (await storage.getTxBlock(buffSourceTx)).toString('hex');
@@ -372,7 +402,8 @@ module.exports = ({Constants, Transaction, StoredWallet, UTXO}) =>
                         arrFilteredArrayOfStableUtxos.push(utxo);
                     }
                 }
-                arrOfArrayOfStableUtxos = arrFilteredArrayOfStableUtxos;
+            } else {
+                arrFilteredArrayOfStableUtxos = Array.from(mapUtxoAddr.keys());
             }
 
             let arrPendingUtxos = [];
@@ -383,7 +414,9 @@ module.exports = ({Constants, Transaction, StoredWallet, UTXO}) =>
                 for (let strAddress of arrAccountAddresses) {
                     const arrFilteredUtxos = [];
                     for (let utxo of arrPendingUtxos) {
-                        arrFilteredUtxos.push(utxo.filterOutputsForAddress(strAddress));
+                        const utxoFiltered = utxo.filterOutputsForAddress(strAddress);
+                        arrFilteredUtxos.push(utxoFiltered);
+                        mapUtxoAddr.set(utxoFiltered, strAddress);
                     }
                     arrOfArrayOfPendingUtxos.push(arrFilteredUtxos);
                 }
@@ -392,44 +425,49 @@ module.exports = ({Constants, Transaction, StoredWallet, UTXO}) =>
             // flatten results
             return prepareForStringifyObject(
                 [].concat(
-                    this._finePrintUtxos(arrOfArrayOfStableUtxos, true),
-                    this._finePrintUtxos([].concat.apply([], arrOfArrayOfPendingUtxos), false)
+                    finePrintUtxos(arrFilteredArrayOfStableUtxos, true, mapUtxoAddr),
+                    finePrintUtxos([].concat.apply([], arrOfArrayOfPendingUtxos), false, mapUtxoAddr)
                 ));
         }
 
-        /**
-         * Will return new UTXOs containing only outputs for strAddress
-         *
-         * @param arrUtxos
-         * @param strAddress
-         * @return {[]}
-         * @private
-         */
-        _filterUtxoForAddress(arrUtxos, strAddress) {
-            const arrFilteredUtxos = [];
-            for (let utxo of arrUtxos) {
-                const arrAddrOutputs = utxo.getOutputsForAddress(strAddress);
-                if (arrAddrOutputs.length) {
-                    const utxoFiltered = new UTXO({txHash: utxo.getTxHash()});
-                    arrAddrOutputs.forEach(([idx, coins]) => {
-                        utxoFiltered.addCoins(idx, coins);
-                    });
-                    arrFilteredUtxos.push(utxoFiltered);
-                }
-            }
-            return arrFilteredUtxos;
-        }
+        async nodeStatus() {
+            const arrResult = await this.getTips();
 
-        _finePrintUtxos(arrUtxos, isStable) {
-            const arrResult = [];
-            arrUtxos.forEach(utxo => {
-                utxo.getIndexes()
-                    .map(idx => [idx, utxo.coinsAtIndex(idx)])
-                    .map(([idx, coins]) => {
-                        arrResult.push({hash: utxo.getTxHash(), nOut: idx, amount: coins.getAmount(), isStable});
-                    });
+            let objLastBlock = undefined;
+            let strLastHash = undefined;
+            arrResult.forEach(({hash, block}) => {
+                if (!objLastBlock || (objLastBlock && objLastBlock.header.timestamp < block.header.timestamp)) {
+                    objLastBlock = block;
+                    strLastHash = hash;
+                }
             });
 
-            return arrResult;
-        };
+            const arrPeers = await this._nodeInstance.rpcHandler({
+                event: 'getConnectedPeers'
+            });
+
+            const arrBannedPeers = await this._nodeInstance.rpcHandler({
+                event: 'getBannedPeers'
+            });
+
+            const arrHashesTxns = await this._nodeInstance.rpcHandler({
+                event: 'getMempoolContent'
+            });
+
+            return {
+                version,
+                protocolVersion: '0x' + Constants.protocolVersion.toString(16),
+                network: '0x' + Constants.network.toString(16),
+                lastBlock: {
+                    time: new Date(objLastBlock.header.timestamp * 1000),
+                    hash: strLastHash
+                },
+                connectedPeers: arrPeers.map(peer => ({
+                    address: peer.address,
+                    version: '0x' + peer.version.toString(16)
+                })),
+                bannedPeers: arrBannedPeers,
+                mempool: arrHashesTxns
+            };
+        }
     };
