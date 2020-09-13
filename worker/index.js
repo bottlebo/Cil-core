@@ -8,14 +8,14 @@ const RemoveBlockWorkerWrapper = require('./removeBlockWorker');
 const DeleteUtxoWorkerWrapper = require('./deleteUtxoWorker');
 
 module.exports = (factory) => {
-  const {DtoSerializer, Mutex} = factory;
+  const {DtoSerializer, Mutex, Block, Transaction} = factory;
   const Worker = WorkerWrapper(Mutex);
   return {
     Worker,
     BlockWorker: BlockWorkerWrapper(DtoSerializer, Worker),
     UtxoWorker: UtxoWorkerWrapper(DtoSerializer, Worker),
     ContractWorker: ContractWorkerWrapper(DtoSerializer, Worker),
-    ReceiptWorker: ReceiptWorkerWrapper(DtoSerializer, Worker),
+    ReceiptWorker: ReceiptWorkerWrapper(DtoSerializer, Worker, Block, Transaction),
     BlockStateWorker: BlockStateWorkerWrapper(Worker),
     RemoveBlockWorker: RemoveBlockWorkerWrapper(Worker),
     DeleteUtxoWorker: DeleteUtxoWorkerWrapper(Worker),

@@ -111,7 +111,7 @@ module.exports = (factory, factoryOptions) => {
                 this._blockWorker = new BlockWorker({...options});
                 this._utxoWorker = new UtxoWorker({...options});
                 this._contractWorker = new ContractWorker({...options});
-                this._receiptWorker = new ReceiptWorker({...options});
+                this._receiptWorker = new ReceiptWorker({...options, storage: this});
                 this._blockStateWorker = new BlockStateWorker({...options});
                 this._removeBlockWorker = new RemoveBlockWorker({...options});
                 this._deleteUtxoWorker = new DeleteUtxoWorker({...options});
