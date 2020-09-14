@@ -14,7 +14,11 @@ module.exports = (DtoSerializer, Worker, Block, Transaction) => {
       data = data.filter(r => r);
       if (data.length) {
         for (let record of data) {
-          if (record.status) record.AddrTxSigner = await this._getContractSignerForTx(record.from);
+          try {
+            if (record.status) record.AddrTxSigner = await this._getContractSignerForTx(record.from);
+          }catch (e) {
+            console.error('_getContractSignerForTx', e);
+          }
         }
         await this._dumpObjectArray(data);
       }
