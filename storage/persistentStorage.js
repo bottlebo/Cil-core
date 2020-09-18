@@ -105,9 +105,8 @@ module.exports = (factory, factoryOptions) => {
             this._worker = false;
 
             if (options.apiConfig) {
-                this._api = new Api({...options});
-            }
-            else if (options.workerConfig) {
+                this._api = new Api({...options, storage: this});
+            } else if (options.workerConfig) {
                 this._blockWorker = new BlockWorker({...options});
                 this._utxoWorker = new UtxoWorker({...options});
                 this._contractWorker = new ContractWorker({...options});
@@ -116,6 +115,8 @@ module.exports = (factory, factoryOptions) => {
                 this._removeBlockWorker = new RemoveBlockWorker({...options});
                 this._deleteUtxoWorker = new DeleteUtxoWorker({...options});
                 this._worker = true;
+            } else{
+              throw new Error('Neither "apiConfig" nor "workerConfig" specified');
             }
         }
 
