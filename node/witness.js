@@ -24,7 +24,8 @@ module.exports = (factory, factoryOptions) => {
 
             this._conciliumSeed = 0;
 
-            const {wallet, networkSuspended} = options;
+            const {wallet, networkSuspended, suppressJoinTx} = options;
+            this._bCreateJoinTx = !suppressJoinTx;
             this._wallet = wallet;
             if (!this._wallet) throw new Error('Pass wallet into witness');
 
@@ -524,9 +525,11 @@ module.exports = (factory, factoryOptions) => {
 
                 let arrTxToProcess;
                 const arrUtxos = await this._storage.walletListUnspent(this._wallet.address);
-                if (arrUtxos.length > Constants.WITNESS_UTXOS_JOIN) {
+
+                // There is possible situation with 1 UTXO having numerous output. It will be count as 1
+                if (this._bCreateJoinTx && arrUtxos.length > Constants.WITNESS_UTXOS_JOIN) {
                     arrTxToProcess = [
-                        this._createJoinTx(arrUtxos, conciliumId),
+                        this._createJoinTx(arrUtxos, conciliumId, Constants.MAX_UTXO_PER_TX / 2),
                         ...this._mempool.getFinalTxns(conciliumId)
                     ];
                 } else {
@@ -535,6 +538,11 @@ module.exports = (factory, factoryOptions) => {
 
                 for (let tx of arrTxToProcess) {
                     try {
+
+                        // with current timers and diameter if concilium more than 10 -
+                        // TXns with 1000+ inputs will freeze network.
+                        // So we'll skip this TXns
+                        if (tx.inputs.length > Constants.MAX_UTXO_PER_TX) continue;
                         const {fee, patchThisTx} = await this._processTx(patchMerged, false, tx);
 
                         totalFee += fee;
@@ -553,6 +561,7 @@ module.exports = (factory, factoryOptions) => {
                 if (arrBadHashes.length) this._mempool.removeTxns(arrBadHashes);
 
                 block.finish(totalFee, this._wallet.address, await this._getFeeSizePerInput(conciliumId));
+                this._processBlockCoinbaseTX(block, totalFee, patchMerged);
 
                 debugWitness(
                     `Witness: "${this._debugAddress}". Block ${block.hash()} with ${block.txns.length - 1} TXNs ready`);
@@ -593,10 +602,11 @@ module.exports = (factory, factoryOptions) => {
          *
          * @param {Array} arrUtxos
          * @param {Number} nConciliumId
+         * @param {Number} nMaxInputs
          * @return {*}
          * @private
          */
-        _createJoinTx(arrUtxos, nConciliumId) {
+        _createJoinTx(arrUtxos, nConciliumId, nMaxInputs = Constants.MAX_UTXO_PER_TX / 2) {
             const tx = new Transaction();
             tx.conciliumId = nConciliumId;
             let nInputs = 0;
@@ -606,8 +616,9 @@ module.exports = (factory, factoryOptions) => {
                 nTotalAmount += utxo.amountOut();
                 for (let idx of utxo.getIndexes()) {
                     tx.addInput(utxo.getTxHash(), idx);
-                    nInputs++;
+                    if (++nInputs >= nMaxInputs) break;
                 }
+                if (nInputs >= nMaxInputs) break;
             }
 
             const fee = (1 + nInputs) * Math.round(Constants.fees.TX_FEE * 0.12);
@@ -621,14 +632,16 @@ module.exports = (factory, factoryOptions) => {
                 }
             }
 
+            logger.debug(`Created TX with ${tx.inputs.length} inputs`);
+
             return tx;
         }
 
         async _ensureWalletIndex() {
             try {
                 await this._storage.walletWatchAddress(this._wallet.address);
-                await this._storage.walletReIndex();
             } catch (e) {}
+            await this._storage.walletReIndex();
         }
     };
 };

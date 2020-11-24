@@ -36,6 +36,10 @@ module.exports = (factory) => {
             this._useNatTraversal = options.hasOwnProperty('useNatTraversal') ? options.useNatTraversal : true;
         }
 
+        get listenAddress() {
+            return this._address;
+        }
+
         get myAddress() {
             return this._publicAddress || this._address;
         }
@@ -193,11 +197,13 @@ module.exports = (factory) => {
         /**
          * @param {String} address - IP address
          * @param {Number} port
+         * @param {String | undefined} localAddress - address connect from
          * @return {Promise<Ipv6Connection>} new connection
          */
-        connect(address, port) {
+        connect(address, port, localAddress) {
             return new Promise((resolve, reject) => {
-                const socket = net.createConnection(port, address,
+                const socket = net.createConnection(
+                    {port, host: address, localAddress},
                     async (err) => {
                         if (err) return reject(err);
                         resolve(new Ipv6Connection({socket, timeout: this._timeout}));
@@ -222,7 +228,10 @@ module.exports = (factory) => {
 
                 // try to use NAT traversal for IPv4
                 if (!ipaddr.IPv6.isIPv6(this._address) && this._useNatTraversal) {
-                    this._publicAddress = await this._mapAddress().catch(err => console.error(err));
+                    const natAddress = await this._mapAddress().catch(err => console.error(err));
+                    if (natAddress && this.constructor.isRoutableIpV4Address(natAddress)) {
+                        this._publicAddress = natAddress;
+                    }
                 }
 
                 // it will be outbound only node (failed to NAT traversal or nonRoutable IPv6)

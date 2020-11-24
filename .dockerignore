@@ -1,0 +1,6 @@
+**/*.tgz
+**/LAW*
+**/prod*
+**/private*
+!config/prod.conf.js
+!**/private*.js

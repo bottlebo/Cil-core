@@ -196,6 +196,17 @@ describe('Concilium contract', () => {
             global.value = 1e5;
         });
 
+        it('should fail to join with unsigned TX', async () => {
+            global.callerAddress = undefined;
+            const concilium = new factory.ConciliumRr({
+                isOpen: false,
+                conciliumId: 14
+            });
+            await contract.createConcilium(concilium.toObject());
+
+            return assert.isRejected(contract.joinConcilium(1), 'Sign transaction!');
+        });
+
         it('should fail to join  conciliumId = 0', async () => {
             const concilium = new factory.ConciliumRr({
                 isOpen: false,
@@ -317,7 +328,7 @@ describe('Concilium contract', () => {
             const callerAddress = generateAddress().toString('hex');
 
             assert.throws(() => contract._retireRrConciliumMember(concilium.toObject(), callerAddress),
-                'You aren\'t member'
+                'You arent member'
             );
         });
 
@@ -347,14 +358,14 @@ describe('Concilium contract', () => {
         it('should throw: not a member', async () => {
             global.callerAddress = generateAddress().toString('hex');
 
-            assert.throws(() => contract._retirePosConciliumMember(concilium.toObject()), 'You aren\'t member');
+            assert.throws(() => contract._retirePosConciliumMember(concilium.toObject()), 'You arent member');
         });
 
         it('should throw: too early', async () => {
             global.block.height = 100 + factory.Constants.concilium.HEIGHT_TO_RELEASE_ADD_ON - 1;
 
             assert.throws(() => contract._retirePosConciliumMember(concilium.toObject(), arrMembers[0].address),
-                'Don\'t leave us now'
+                'Dont leave us now'
             );
         });
 
@@ -733,4 +744,3 @@ describe('Concilium contract', () => {
         });
     });
 })
-;

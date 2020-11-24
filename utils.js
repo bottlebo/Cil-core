@@ -14,130 +14,130 @@ const https = require('https');
  * @constructor
  */
 function GCD(arrNumbers) {
-    let x = Math.abs(arrNumbers[0]);
-    for (let i = 1; i < arrNumbers.length; i++) {
-        let y = Math.abs(arrNumbers[i]);
-        while (x && y) { x > y ? x %= y : y %= x; }
-        x += y;
-    }
-    return x;
+  let x = Math.abs(arrNumbers[0]);
+  for (let i = 1; i < arrNumbers.length; i++) {
+    let y = Math.abs(arrNumbers[i]);
+    while (x && y) { x > y ? x %= y : y %= x; }
+    x += y;
+  }
+  return x;
 }
 
 const createPeerTag = (nConciliumId) => {
-    return `wg${nConciliumId}`;
+  return `wg${nConciliumId}`;
 };
 
 const deepCloneObject = (objToClone) => {
-    return v8.deserialize(v8.serialize(objToClone));
+  return v8.deserialize(v8.serialize(objToClone));
 };
 
 const arrayIntersection = (array1, array2) => {
-    const cache = new Set(array1);
-    return array2.filter(elem => cache.has(elem));
-    return result;
+  const cache = new Set(array1);
+  return array2.filter(elem => cache.has(elem));
+  return result;
 };
 
 const queryRpc = async (url, strMethod, objParams = {}) => {
 
-    const options = {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        }
-    };
+  const options = {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    }
+  };
 
-    const objBody = {
-        jsonrpc: '2.0',
-        method: strMethod,
-        params: objParams,
-        id: 67
-    };
+  const objBody = {
+    jsonrpc: '2.0',
+    method: strMethod,
+    params: objParams,
+    id: 67
+  };
 
-    const chunks = [];
-    const {result} = await new Promise((resolve, reject) => {
-        const req = http.request(url, options, res => {
-            res.on("data", (chunk) => {
-                chunks.push(chunk);
-            });
+  const chunks = [];
+  const {result} = await new Promise((resolve, reject) => {
+    const req = http.request(url, options, res => {
+      res.on("data", (chunk) => {
+        chunks.push(chunk);
+      });
 
-            res.on("end", () => {
-                const buffBody = Buffer.concat(chunks);
-                const result = buffBody.length ? JSON.parse(buffBody.toString()) : {result: null};
-                resolve(result);
-            });
+      res.on("end", () => {
+        const buffBody = Buffer.concat(chunks);
+        const result = buffBody.length ? JSON.parse(buffBody.toString()) : {result: null};
+        resolve(result);
+      });
 
-            req.on('error', (e) => {
-                reject(e);
-            });
-        });
-
-        req.write(JSON.stringify(objBody));
-        req.end();
+      req.on('error', (e) => {
+        reject(e);
+      });
     });
 
-    return result;
+    req.write(JSON.stringify(objBody));
+    req.end();
+  });
+
+  return result;
 };
 
 const getHttpData = async (url) => {
-    const options = {
-        method: "GET",
-        headers: {
-            "Content-Type": "application/json"
-        },
+  const options = {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json"
+    },
 
-        // test-explorer has an issue with cert
-        rejectUnauthorized: false
-    };
+    // test-explorer has an issue with cert
+    rejectUnauthorized: false
+  };
 
-    const transport = url.match(/^https/) ? https : http;
+  const transport = url.match(/^https/) ? https : http;
 
-    const chunks = [];
-    const result = await new Promise((resolve, reject) => {
-        const req = transport.request(url, options, res => {
-            res.on("data", (chunk) => {
-                chunks.push(chunk);
-            });
+  const chunks = [];
+  const result = await new Promise((resolve, reject) => {
+    const req = transport.request(url, options, res => {
+      res.on("data", (chunk) => {
+        chunks.push(chunk);
+      });
 
-            res.on("end", () => {
-                const buffBody = Buffer.concat(chunks);
-                const result = buffBody.length ? JSON.parse(buffBody.toString()) : {};
-                resolve(result);
-            });
+      res.on("end", () => {
+        const buffBody = Buffer.concat(chunks);
+        const result = buffBody.length ? JSON.parse(buffBody.toString()) : {};
+        resolve(result);
+      });
 
-            req.on('error', (e) => {
-                reject(e);
-            });
-        });
-
-        req.end();
+      req.on('error', (e) => {
+        reject(e);
+      });
     });
 
-    return result;
+    req.end();
+  });
+
+  return result;
 };
 
 const prepareForStringifyObject = (obj) => {
-    if (!(obj instanceof Object)) return obj;
+  if (!(obj instanceof Object)) return obj;
 
-    if (Buffer.isBuffer(obj)) return obj.toString('hex');
-    if (Array.isArray(obj)) return obj.map(elem => prepareForStringifyObject(elem));
+  if (Buffer.isBuffer(obj)) return obj.toString('hex');
+  if (Array.isArray(obj)) return obj.map(elem => prepareForStringifyObject(elem));
 
-    const resultObject = {};
-    for (let key of Object.keys(obj)) {
-        if (typeof obj[key] === 'function' || typeof obj[key] === 'undefined') continue;
+  const resultObject = {};
+  for (let key of Object.keys(obj)) {
+    if (typeof obj[key] === 'function' || typeof obj[key] === 'undefined') continue;
 
-        if (Buffer.isBuffer(obj[key])) {
-            resultObject[key] = obj[key].toString('hex');
-        } else if (Array.isArray(obj[key])) {
-            resultObject[key] = prepareForStringifyObject(obj[key]);
-        } else if (Long.isLong(obj[key])) {
-            resultObject[key] = obj[key].toNumber();
-        } else if (obj[key] instanceof Object) {
-            resultObject[key] = prepareForStringifyObject(obj[key]);
-        } else {
-            resultObject[key] = obj[key];
-        }
+    if (Buffer.isBuffer(obj[key])) {
+      resultObject[key] = obj[key].toString('hex');
+    } else if (Array.isArray(obj[key])) {
+      resultObject[key] = prepareForStringifyObject(obj[key]);
+    } else if (Long.isLong(obj[key])) {
+      resultObject[key] = obj[key].toNumber();
+    } else if (obj[key] instanceof Object) {
+      resultObject[key] = prepareForStringifyObject(obj[key]);
+    } else {
+      resultObject[key] = obj[key];
     }
-    return resultObject;
+  }
+  return resultObject;
 };
 
 /**
@@ -148,22 +148,22 @@ const prepareForStringifyObject = (obj) => {
  * @return {[{hash, nOut, amount, isStable}]}
  */
 const finePrintUtxos = (arrUtxos, bStable, mapUtxoAddr) => {
-    const arrResult = [];
-    arrUtxos.forEach(utxo => {
-        utxo.getIndexes()
-            .map(idx => [idx, utxo.coinsAtIndex(idx)])
-            .forEach(([idx, coins]) => {
-                const strReceiver = mapUtxoAddr ? mapUtxoAddr.get(utxo) : undefined;
-                arrResult.push({
-                    hash: utxo.getTxHash(),
-                    nOut: idx,
-                    amount: coins.getAmount(),
-                    isStable: bStable,
-                    receiver: strReceiver
-                });
-            });
-    });
-    return arrResult;
+  const arrResult = [];
+  arrUtxos.forEach(utxo => {
+    utxo.getIndexes()
+      .map(idx => [idx, utxo.coinsAtIndex(idx)])
+      .forEach(([idx, coins]) => {
+        const strReceiver = mapUtxoAddr ? mapUtxoAddr.get(utxo) : undefined;
+        arrResult.push({
+          hash: utxo.getTxHash(),
+          nOut: idx,
+          amount: coins.getAmount(),
+          isStable: bStable,
+          receiver: strReceiver
+        });
+      });
+  });
+  return arrResult;
 };
 
 /**
@@ -173,23 +173,23 @@ const finePrintUtxos = (arrUtxos, bStable, mapUtxoAddr) => {
  * @returns {Buffer|*}
  */
 const deStringifyObject = (obj) => {
-    if (typeof obj === 'string') {
-        const buff = Buffer.from(obj, 'hex');
-        if (buff.length * 2 === obj.length) return buff;
-        return obj;
-    } else if (obj instanceof Object) {
-        const resultObject = {};
+  if (typeof obj === 'string') {
+    const buff = Buffer.from(obj, 'hex');
+    if (buff.length * 2 === obj.length) return buff;
+    return obj;
+  } else if (obj instanceof Object) {
+    const resultObject = {};
 
-        if (Array.isArray(obj)) return obj.map(el => deStringifyObject(el));
+    if (Array.isArray(obj)) return obj.map(el => deStringifyObject(el));
 
-        for (let key of Object.keys(obj)) {
-            if (typeof obj[key] === 'function' || typeof obj[key] === 'undefined') continue;
-            resultObject[key] = deStringifyObject(obj[key]);
-        }
-        return resultObject;
-    } else {
-        return obj;
+    for (let key of Object.keys(obj)) {
+      if (typeof obj[key] === 'function' || typeof obj[key] === 'undefined') continue;
+      resultObject[key] = deStringifyObject(obj[key]);
     }
+    return resultObject;
+  } else {
+    return obj;
+  }
 };
 
 /**
@@ -199,57 +199,57 @@ const deStringifyObject = (obj) => {
  * @return {Array} keys
  */
 const getMapsKeys = (...arrMaps) => {
-    let arrResultKeys = [];
-    for (let map of arrMaps) {
-        arrResultKeys = arrResultKeys.concat(Array.from(map.keys()));
-    }
-    return arrResultKeys;
+  let arrResultKeys = [];
+  for (let map of arrMaps) {
+    arrResultKeys = arrResultKeys.concat(Array.from(map.keys()));
+  }
+  return arrResultKeys;
 };
 
 function questionAsync(prompt, password = false) {
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
 
-    return new Promise(resolve => {
-        rl.question(prompt, answer => {
-            rl.close();
-            if (password) {
-                if (process.stdout.moveCursor) process.stdout.moveCursor(0, -1);
-                if (process.stdout.clearLine) process.stdout.clearLine();
-            }
-            resolve(answer.trim());
-        });
+  return new Promise(resolve => {
+    rl.question(prompt, answer => {
+      rl.close();
+      if (password) {
+        if (process.stdout.moveCursor) process.stdout.moveCursor(0, -1);
+        if (process.stdout.clearLine) process.stdout.clearLine();
+      }
+      resolve(answer.trim());
     });
+  });
 }
 
 function decryptPkFileContent(Crypto, fileContent, password) {
-    let objEncodedData;
-    let encoding = 'hex';
+  let objEncodedData;
+  let encoding = 'hex';
 
-    try {
-        objEncodedData = JSON.parse(fileContent);
-    } catch (e) {
+  try {
+    objEncodedData = JSON.parse(fileContent);
+  } catch (e) {
 
-        // V1: concatenated salt, iv, base64Encoded
-        const salt = fileContent.substr(0, 32);
-        const iv = fileContent.substr(32, 32);
-        const encrypted = Buffer.from(fileContent.substring(64), 'base64');
+    // V1: concatenated salt, iv, base64Encoded
+    const salt = fileContent.substr(0, 32);
+    const iv = fileContent.substr(32, 32);
+    const encrypted = Buffer.from(fileContent.substring(64), 'base64');
 
-        objEncodedData = {
-            iv,
-            encrypted,
-            salt,
-            hashOptions: {iterations: 100},
-            keyAlgo: 'pbkdf2'
-        };
+    objEncodedData = {
+      iv,
+      encrypted,
+      salt,
+      hashOptions: {iterations: 100},
+      keyAlgo: 'pbkdf2'
+    };
 
-        // decrypted value will be neither 32 byte length buffer, nor hex String of length 64, but 64 byte length Buffer
-        encoding = undefined;
-    }
+    // decrypted value will be neither 32 byte length buffer, nor hex String of length 64, but 64 byte length Buffer
+    encoding = undefined;
+  }
 
-    return Crypto.decrypt(password, objEncodedData).toString(encoding);
+  return Crypto.decrypt(password, objEncodedData).toString(encoding);
 }
 
 /**
@@ -260,28 +260,46 @@ function decryptPkFileContent(Crypto, fileContent, password) {
  */
 function mapEnvToOptions() {
 
-    const {SEED_ADDRESS, RPC_ADDRESS, RPC_USER, RPC_PASS, GENESIS_HASH, CONCILIUM_CONTRACT, WITNESS_NODE, SEED_NODE, BUILD_TX_INDEX, WALLET_SUPPORT} = process.env;
-    return {
+  const {
+    TRUST_ANNOUNCE, ANNOUNCE_ADDRESS, LISTEN_ADDR,
+    SEED_ADDRESS, RPC_ADDRESS, RPC_USER, RPC_PASS,
+    GENESIS_HASH, CONCILIUM_CONTRACT,
+    WITNESS_NODE, SEED_NODE, BUILD_TX_INDEX, WALLET_SUPPORT, SUPPRESS_JOIN_TX
+  } = process.env;
 
-        // if you plan to send TXns through your node
-        rpcUser: RPC_USER,
-        rpcPass: RPC_PASS,
-        rpcAddress: RPC_ADDRESS,
+  return {
+    trustAnnounce: getBoolEnvParameter(TRUST_ANNOUNCE),
+    announceAddr: ANNOUNCE_ADDRESS,
+    listenAddr: LISTEN_ADDR,
 
-        // if you plan to query your node
-        txIndex: !!BUILD_TX_INDEX,
-        walletSupport: !!WALLET_SUPPORT,
+    // if you plan to send TXns through your node
+    rpcUser: RPC_USER,
+    rpcPass: RPC_PASS,
+    rpcAddress: RPC_ADDRESS,
 
-        // WITNESS_NODE is a Boolean variable, indicating witness node.
-        // Just mount your real file name into container /app/private
-        privateKey: WITNESS_NODE ? './private' : undefined,
-        seed: !!SEED_NODE,
+    // if you plan to query your node
+    txIndex: (BUILD_TX_INDEX),
+    walletSupport: getBoolEnvParameter(WALLET_SUPPORT),
 
-        // Variables below used for development, regular user don't need it
-        seedAddr: SEED_ADDRESS,
-        genesisHash: GENESIS_HASH,
-        conciliumDefContract: CONCILIUM_CONTRACT
-    };
+    // WITNESS_NODE is a Boolean variable, indicating witness node.
+    // Just mount your real file name into container /app/private
+    privateKey: WITNESS_NODE ? './private' : undefined,
+    seed: getBoolEnvParameter(SEED_NODE),
+
+    suppressJoinTx: getBoolEnvParameter(SUPPRESS_JOIN_TX),
+
+    // Variables below used for development, regular user don't need it
+    seedAddr: SEED_ADDRESS,
+    genesisHash: GENESIS_HASH,
+    conciliumDefContract: CONCILIUM_CONTRACT
+  };
+}
+
+function getBoolEnvParameter(value) {
+  return !!(
+    value && typeof value === 'string' &&
+    (value.trim().toLowerCase() === 'true' || parseInt(value) === 1)
+  );
 }
 
 /**
@@ -291,131 +309,135 @@ function mapEnvToOptions() {
  * @returns Object
  */
 function mapOptionsToNodeParameters(objUserParams) {
-    return {
+  return {
 
-        // if command line parameter have same name as option name, like "rpcUser"
-        ...objUserParams,
+    // if command line parameter have same name as option name, like "rpcUser"
+    ...objUserParams,
 
-        // non matching names
-        buildTxIndex: objUserParams.txIndex,
-        listenPort: objUserParams.port,
-        arrSeedAddresses: objUserParams.seedAddr ? [objUserParams.seedAddr] : [],
-        isSeed: objUserParams.seed
-    };
+    // non matching names
+    buildTxIndex: objUserParams.txIndex,
+    listenPort: objUserParams.port,
+    arrSeedAddresses: objUserParams.seedAddr ? [objUserParams.seedAddr] : [],
+    isSeed: objUserParams.seed
+  };
 }
 
 module.exports = {
-    sleep: (delay) => {
-        return new Promise(resolve => {
-            setTimeout(resolve, delay);
-        });
-    },
-    arrayIntersection,
+  sleep: (delay) => {
+    return new Promise(resolve => {
+      setTimeout(resolve, delay);
+    });
+  },
+  arrayIntersection,
 
-    // order is not guaranteed! only equality of content
-    arrayEquals: (array1, array2) => {
-        return array1.length === array2.length && arrayIntersection(array1, array2).length === array1.length;
-    },
+  // order is not guaranteed! only equality of content
+  arrayEquals: (array1, array2) => {
+    return array1.length === array2.length && arrayIntersection(array1, array2).length === array1.length;
+  },
 
-    mergeSets: (set1, set2) => {
-        return new Set([...set1, ...set2]);
-    },
+  mergeSets: (set1, set2) => {
+    return new Set([...set1, ...set2]);
+  },
 
-    getMapsKeys,
+  getMapsKeys,
 
-    getMapsKeysUnique: (...arrMaps) => {
-        let tempSet = new Set(getMapsKeys(...arrMaps));
-        return Array.from(tempSet.keys());
-    },
+  getMapsKeysUnique: (...arrMaps) => {
+    let tempSet = new Set(getMapsKeys(...arrMaps));
+    return Array.from(tempSet.keys());
+  },
 
-    timestamp: () => {
-        return parseInt(Date.now() / 1000);
-    },
+  timestamp: () => {
+    return parseInt(Date.now() / 1000);
+  },
 
-    asyncRPC: fn => (arg, opt, cb) => {
-        fn(arg, opt)
-            .then(result => cb(null, result))
-            .catch(cb);
-    },
+  asyncRPC: fn => (arg, opt, cb) => {
+    fn(arg, opt)
+      .then(result => cb(null, result))
+      .catch(cb);
+  },
 
-    readCmdLineOptions: () => {
-        const optionDefinitions = [
-            {name: "listenAddr", type: String, multiple: false},
-            {name: "port", type: Number, multiple: false},
-            {name: "seedAddr", type: String, multiple: false},
-            {name: "rpcUser", type: String, multiple: false},
-            {name: "rpcPass", type: String, multiple: false},
-            {name: "rpcPort", type: Number, multiple: false},
-            {name: "rpcAddress", type: String, multiple: false},
-            {name: "genesisHash", type: String, multiple: false},
-            {name: "conciliumDefContract", type: String, multiple: false},
-            {name: "privateKey", type: String, multiple: false},
-            {name: "dbPath", type: String, multiple: false},
-            {name: "seed", type: Boolean, multiple: false},
-            {name: "strictAddresses", type: Boolean, multiple: false},
-            {name: "txIndex", type: Boolean, multiple: false},
-            {name: "watchAddress", type: String, multiple: true},
-            {name: "reIndexWallet", type: Boolean, multiple: false},
-            {name: "walletSupport", type: Boolean, multiple: false},
-            {name: "listWallets", type: Boolean, multiple: false},
-            {name: "localDevNode", type: Boolean, multiple: false},
-            {name: "rebuildDb", type: Boolean, multiple: false},
-            {name: "apiConfig", type: String, multiple: false},
-            {name: "whitelistedAddr", type: String, multiple: true},
-            {name: "apiUser", type: String, multiple: false},
-            {name: "apiPassword", type: String, multiple: false},
-            {name: "workerConfig", type: String, multiple: false},
+  readCmdLineOptions: () => {
+    const optionDefinitions = [
+      {name: "trustAnnounce", type: Boolean, multiple: false},
+      {name: "announceAddr", type: String, multiple: false},
+      {name: "listenAddr", type: String, multiple: false},
+      {name: "port", type: Number, multiple: false},
+      {name: "seedAddr", type: String, multiple: false},
+      {name: "rpcUser", type: String, multiple: false},
+      {name: "rpcPass", type: String, multiple: false},
+      {name: "rpcPort", type: Number, multiple: false},
+      {name: "rpcAddress", type: String, multiple: false},
+      {name: "genesisHash", type: String, multiple: false},
+      {name: "conciliumDefContract", type: String, multiple: false},
+      {name: "privateKey", type: String, multiple: false},
+      {name: "dbPath", type: String, multiple: false},
+      {name: "seed", type: Boolean, multiple: false},
+      {name: "strictAddresses", type: Boolean, multiple: false},
+      {name: "txIndex", type: Boolean, multiple: false},
+      {name: "watchAddress", type: String, multiple: true},
+      {name: "reIndexWallet", type: Boolean, multiple: false},
+      {name: "walletSupport", type: Boolean, multiple: false},
+      {name: "listWallets", type: Boolean, multiple: false},
+      {name: "localDevNode", type: Boolean, multiple: false},
+      {name: "rebuildDb", type: Boolean, multiple: false},
+      {name: "apiConfig", type: String, multiple: false},
+      {name: "apiUser", type: String, multiple: false},
+      {name: "apiPassword", type: String, multiple: false},
+      {name: "workerConfig", type: String, multiple: false},
+      {name: "whitelistedAddr", type: String, multiple: true},
+      {name: "suppressJoinTx", type: Boolean, multiple: false, defaultOption: false}
 
-        ];
-        return commandLineArgs(optionDefinitions, {camelCase: true});
-    },
+    ];
+    return commandLineArgs(optionDefinitions, {camelCase: true});
+  },
 
-    prepareForStringifyObject,
-    deStringifyObject,
+  prepareForStringifyObject,
+  deStringifyObject,
 
-    questionAsync,
-    deepCloneObject,
+  questionAsync,
+  deepCloneObject,
 
-    queryRpc,
-    getHttpData,
+  queryRpc,
+  getHttpData,
 
-    pick(obj, keys) {
-        return keys.map(k => k in obj ? {[k]: obj[k]} : {})
-            .reduce((res, o) => Object.assign(res, o), {});
-    },
+  pick(obj, keys) {
+    return keys.map(k => k in obj ? {[k]: obj[k]} : {})
+      .reduce((res, o) => Object.assign(res, o), {});
+  },
 
-    stripAddressPrefix(Constants, strAddr) {
-        return strAddr.substring(0, 2) === Constants.ADDRESS_PREFIX ?
-            strAddr.substring(Constants.ADDRESS_PREFIX.length)
-            : strAddr;
-    },
+  stripAddressPrefix(Constants, strAddr) {
+    return strAddr && strAddr.startsWith(Constants.ADDRESS_PREFIX) ?
+      strAddr.substring(Constants.ADDRESS_PREFIX.length)
+      : strAddr;
+  },
 
-    async readPrivateKeyFromFile(Crypto, path) {
-        const encodedContent = fs.readFileSync(path, 'utf8');
+  async readPrivateKeyFromFile(Crypto, path) {
+    const encodedContent = fs.readFileSync(path, 'utf8');
 
-        let password;
-        if (typeof process.env.PK_PASSWORD !== 'string') {
+    let password;
+    if (typeof process.env.PK_PASSWORD !== 'string') {
 
-            // TODO suppress echo
-            password = await questionAsync('Enter password to decrypt private key: ', true);
-        } else {
-            password = process.env.PK_PASSWORD.trim();
-        }
+      // TODO suppress echo
+      password = await questionAsync('Enter password to decrypt private key: ', true);
+    } else {
+      password = process.env.PK_PASSWORD.trim();
+    }
 
-        return decryptPkFileContent(Crypto, encodedContent, password);
-    },
+    return decryptPkFileContent(Crypto, encodedContent, password);
+  },
 
-    createObjInvocationCode(strMethod, arrArguments) {
-        return {
-            method: strMethod,
-            arrArguments
-        };
-    },
+  createObjInvocationCode(strMethod, arrArguments) {
+    return {
+      method: strMethod,
+      arrArguments
+    };
+  },
 
-    decryptPkFileContent,
-    mapEnvToOptions,
-    mapOptionsToNodeParameters,
-    GCD,
-    createPeerTag,
-    finePrintUtxos
+  decryptPkFileContent,
+  mapEnvToOptions,
+  mapOptionsToNodeParameters,
+  GCD,
+  createPeerTag,
+  finePrintUtxos,
+  getBoolEnvParameter
 };

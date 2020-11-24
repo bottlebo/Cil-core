@@ -1,5 +1,7 @@
 FROM nikolaik/python-nodejs:python2.7-nodejs10
 
+STOPSIGNAL SIGTERM
+
 RUN mkdir /app/
 WORKDIR /app/
 
