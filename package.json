@@ -6,6 +6,7 @@
   "version": "0.7.2-staging",
   "main": "factory.js",
   "dependencies": {
+    "axios": "^0.21.1",
     "command-line-args": "^5.1.1",
     "dagjs": "git+https://github.com/trueshura/DAG.git",
     "elliptic": "^6.5.3",
