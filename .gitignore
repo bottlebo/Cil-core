@@ -2,6 +2,3 @@ node_modules
 .idea
 .vscode
 .jscsrc
-package-lock.json
-db
-swap/*.dump

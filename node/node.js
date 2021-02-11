@@ -113,11 +113,13 @@ module.exports = (factory, factoryOptions) => {
 
                 await this._transport.listen();
 
+                const {announceAddr} = options;
+                const address = Transport.strToAddress(announceAddr ? announceAddr : this._transport.myAddress);
                 this._myPeerInfo = new PeerInfo({
                     capabilities: [
                         {service: Constants.NODE}
                     ],
-                    address: Transport.strToAddress(this._transport.myAddress),
+                    address,
                     port: this._transport.port
                 });
 
@@ -208,7 +210,7 @@ module.exports = (factory, factoryOptions) => {
          */
         async _connectToPeer(peer) {
             debugNode(`(address: "${this._debugAddress}") connecting to "${peer.address}"`);
-            if (!peer.isBanned()) await peer.connect();
+            if (!peer.isBanned()) await peer.connect(this._transport.listenAddress);
             debugNode(`(address: "${this._debugAddress}") CONNECTED to "${peer.address}"`);
         }
 
@@ -475,7 +477,8 @@ module.exports = (factory, factoryOptions) => {
                             }
                         }
                     } else if (objVector.type === Constants.INV_BLOCK) {
-                        bShouldRequest = !this._requestCache.isRequested(objVector.hash) &&
+                        bShouldRequest = !this._storage.isBlockBanned(objVector.hash) &&
+                                         !this._requestCache.isRequested(objVector.hash) &&
                                          !await this._isBlockKnown(objVector.hash.toString('hex'));
                         if (bShouldRequest) nBlockToRequest++;
                     }
@@ -1021,8 +1024,8 @@ module.exports = (factory, factoryOptions) => {
             const strTxHash = tx.getHash();
 
             // TODO: check against DB & valid claim here rather slow, consider light checks, now it's heavy strict check
-            // this will check for double spend in pending txns
-            // if something wrong - it will throw error
+            //  this will check for double spend in pending txns
+            //  if something wrong - it will throw error
 
             if (this._mempool.hasTx(tx.hash())) return;
 
